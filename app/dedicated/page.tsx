@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { lazy, Suspense } from 'react'
 import Navbar from "../components/Navbar"
 import VDSPricingSection from "../components/dedicated/VDSPricingSection"
@@ -14,6 +15,26 @@ const PanelShowcase = lazy(() => import("../components/PanelShowcase"))
 
 
 export const dynamic = "force-dynamic"
+
+export async function generateMetadata(): Promise<Metadata> {
+  const site = await readPublicSiteContent()
+  const pageConfig = findServicePage(site, "dedicated")
+
+  return {
+    title: `Dedicated Server Hosting from ${pageConfig?.startingAt || "\u20b98,349/mo"}`,
+    description:
+      pageConfig?.description ||
+      "Dedicated server hosting with bare-metal performance, NVMe storage options, DDoS protection, and INR pricing from SnapGrids.",
+    alternates: {
+      canonical: "/dedicated",
+    },
+    openGraph: {
+      title: "Dedicated Server Hosting | SnapGrids",
+      description: "Bare-metal dedicated server hosting with high performance infrastructure and INR pricing.",
+      url: "/dedicated",
+    },
+  }
+}
 
 export default async function DedicatedPage() {
   const site = await readPublicSiteContent()

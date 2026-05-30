@@ -1,5 +1,6 @@
 import "server-only"
 
+import { cache } from "react"
 import type { AdminMappings } from "@/app/types/paymenter"
 import type { SiteContent } from "@/app/types/site"
 import { defaultSiteContent } from "@/app/lib/site-content"
@@ -11,10 +12,10 @@ const emptyMappings: AdminMappings = {
   games: {},
 }
 
-export async function readPublicSiteContent(): Promise<SiteContent> {
+export const readPublicSiteContent = cache(async (): Promise<SiteContent> => {
   try {
     return (await readAdminConfig()).site
   } catch {
     return defaultSiteContent(emptyMappings)
   }
-}
+})

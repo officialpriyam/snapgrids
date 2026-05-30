@@ -1,0 +1,22 @@
+# SnapGrids
+
+SnapGrids is a hosting provider for game servers, VPS hosting, web hosting, Discord bot hosting, and dedicated servers.
+
+Primary site: https://snapgrids.store/
+Sitemap: https://snapgrids.store/sitemap.xml
+
+Important pages:
+- Game server hosting: https://snapgrids.store/games
+- Minecraft server hosting: https://snapgrids.store/games/minecraft
+- Rust server hosting: https://snapgrids.store/games/rust
+- ARK server hosting: https://snapgrids.store/games/ark
+- VPS hosting: https://snapgrids.store/vps
+- Web hosting: https://snapgrids.store/webhosting
+- Discord bot hosting: https://snapgrids.store/discord
+- Dedicated server hosting: https://snapgrids.store/dedicated
+
+Key capabilities:
+- INR pricing by default with selectable currency conversion.
+- NVMe-backed hosting plans for games, websites, bots, VPS, and dedicated workloads.
+- DDoS protection, low-latency connectivity, and scalable plans.
+- Admin-managed game and hosting pages with editable plan category mappings.

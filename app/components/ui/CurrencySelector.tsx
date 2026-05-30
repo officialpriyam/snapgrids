@@ -8,6 +8,106 @@ import uiConfig from "../../config/sections/ui.json";
 import type { UIConfig, Currency } from "../../types/ui";
 
 const config = uiConfig as UIConfig;
+const rateCacheMs = 24 * 60 * 60 * 1000;
+const selectedCurrencyStorageKey = "snapgrids:selectedCurrency";
+const exchangeRatesStorageKey = `snapgrids:exchangeRates:${config.currency.baseCurrency}`;
+
+const fallbackExchangeRates: Record<string, number> = {
+  USD: 1,
+  INR: 83.5,
+  EUR: 0.92,
+  GBP: 0.78,
+  CAD: 1.36,
+  AUD: 1.52,
+  JPY: 157,
+};
+
+function getCurrencyByCode(code: string) {
+  return config.currency.supportedCurrencies.find((currency) => currency.code === code);
+}
+
+function getDefaultCurrency() {
+  return getCurrencyByCode(config.currency.defaultCurrency) || config.currency.supportedCurrencies[0];
+}
+
+function getSavedCurrency() {
+  if (typeof window === "undefined") {
+    return getDefaultCurrency();
+  }
+
+  const savedCode = window.localStorage.getItem(selectedCurrencyStorageKey);
+  return savedCode ? getCurrencyByCode(savedCode) || getDefaultCurrency() : getDefaultCurrency();
+}
+
+function getRatesEndpoint() {
+  const baseCurrency = encodeURIComponent(config.currency.baseCurrency);
+
+  if (config.currency.apiKey) {
+    return `https://v6.exchangerate-api.com/v6/${encodeURIComponent(config.currency.apiKey)}/latest/${baseCurrency}`;
+  }
+
+  return (config.currency.ratesEndpoint || "https://open.er-api.com/v6/latest/{baseCurrency}").replace(
+    "{baseCurrency}",
+    baseCurrency
+  );
+}
+
+function parseCachedRates() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(exchangeRatesStorageKey);
+    if (!stored) {
+      return null;
+    }
+
+    const cache = JSON.parse(stored) as { rates?: Record<string, number>; timestamp?: number };
+    if (!cache.rates || !cache.timestamp || Date.now() - cache.timestamp > rateCacheMs) {
+      return null;
+    }
+
+    return cache.rates;
+  } catch {
+    return null;
+  }
+}
+
+function detectCurrencyCode(price: string) {
+  const upperPrice = price.toUpperCase();
+
+  if (upperPrice.includes("INR") || price.includes("\u20b9")) return "INR";
+  if (upperPrice.includes("CAD") || price.includes("C$")) return "CAD";
+  if (upperPrice.includes("AUD") || price.includes("A$")) return "AUD";
+  if (upperPrice.includes("EUR") || price.includes("\u20ac")) return "EUR";
+  if (upperPrice.includes("GBP") || price.includes("\u00a3")) return "GBP";
+  if (upperPrice.includes("JPY") || price.includes("\u00a5")) return "JPY";
+  if (upperPrice.includes("USD") || price.includes("$")) return "USD";
+
+  return config.currency.baseCurrency;
+}
+
+function normalizeNumber(value: string) {
+  const parsed = Number.parseFloat(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getPriceSuffix(price: string, numericMatch: RegExpMatchArray) {
+  const index = numericMatch.index ?? 0;
+  return price.slice(index + numericMatch[0].length).trim();
+}
+
+function formatAmount(amount: number, currency: Currency) {
+  const maximumFractionDigits = currency.code === "JPY" ? 0 : 2;
+  const minimumFractionDigits = currency.code === "JPY" || currency.code === "INR" ? 0 : 2;
+  const locale = currency.code === "INR" ? "en-IN" : "en-US";
+
+  return `${currency.symbol}${amount.toLocaleString(locale, {
+    minimumFractionDigits,
+    maximumFractionDigits,
+  })}`;
+}
 
 interface CurrencySelectorProps {
   selectedCurrency: Currency;
@@ -161,48 +261,50 @@ interface UseCurrencyReturn {
   selectedCurrency: Currency;
   setSelectedCurrency: (currency: Currency) => void;
   exchangeRates: Record<string, number>;
-  convertPrice: (price: string) => string;
+  convertPrice: (price: string | number) => string;
   isLoading: boolean;
 }
 
 export function useCurrency(): UseCurrencyReturn {
-  const defaultCurrency = config.currency.supportedCurrencies.find(
-    c => c.code === config.currency.defaultCurrency
-  ) || config.currency.supportedCurrencies[0];
-
-  const [selectedCurrency, setSelectedCurrency] = useState<Currency>(defaultCurrency);
-  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
+  const [selectedCurrency, setSelectedCurrencyState] = useState<Currency>(getDefaultCurrency);
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>(fallbackExchangeRates);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    setSelectedCurrencyState(getSavedCurrency());
+
     const fetchExchangeRates = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch(
-          `https://v6.exchangerate-api.com/v6/${config.currency.apiKey}/latest/${config.currency.baseCurrency}`
-        );
+        const cachedRates = parseCachedRates();
+
+        if (cachedRates) {
+          setExchangeRates({ ...fallbackExchangeRates, ...cachedRates });
+          setIsLoading(false);
+          return;
+        }
+
+        const response = await fetch(getRatesEndpoint());
         const data = await response.json();
 
-        if (data.result === "success") {
-          setExchangeRates(data.conversion_rates);
+        const fetchedRates = data.conversion_rates || data.rates;
+
+        if (data.result === "success" && fetchedRates) {
+          const rates = { ...fallbackExchangeRates, ...fetchedRates };
+          setExchangeRates(rates);
           localStorage.setItem(
-            "exchangeRates",
+            exchangeRatesStorageKey,
             JSON.stringify({
-              rates: data.conversion_rates,
+              rates,
               timestamp: Date.now(),
             })
           );
         }
       } catch (error) {
-        console.error("Failed to fetch exchange rates:", error);
-        const stored = localStorage.getItem("exchangeRates");
-        if (stored) {
-          const { rates, timestamp } = JSON.parse(stored);
-          const dayInMs = 24 * 60 * 60 * 1000;
-
-          if (Date.now() - timestamp < dayInMs) {
-            setExchangeRates(rates);
-          }
+        console.warn("Failed to refresh exchange rates. Using cached or fallback rates.", error);
+        const cachedRates = parseCachedRates();
+        if (cachedRates) {
+          setExchangeRates({ ...fallbackExchangeRates, ...cachedRates });
         }
       } finally {
         setIsLoading(false);
@@ -212,35 +314,44 @@ export function useCurrency(): UseCurrencyReturn {
     fetchExchangeRates();
   }, []);
 
-  const convertPrice = (price: string): string => {
-    
-    const numericPrice = parseFloat(price.replace(/[^0-9.-]/g, ''));
-    
-    if (isNaN(numericPrice)) {
-      return `${selectedCurrency.symbol}0.00`;
+  const setSelectedCurrency = (currency: Currency) => {
+    setSelectedCurrencyState(currency);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(selectedCurrencyStorageKey, currency.code);
+    }
+  };
+
+  const convertPrice = (price: string | number): string => {
+    const rawPrice = String(price);
+    const numericMatch = rawPrice.match(/-?\d[\d,]*(?:\.\d+)?/);
+    if (!numericMatch) {
+      return formatAmount(0, selectedCurrency);
     }
 
-    if (selectedCurrency.code === config.currency.baseCurrency) {
-      if (selectedCurrency.code === "JPY") {
-        return `${selectedCurrency.symbol}${Math.round(numericPrice)}`;
-      }
-      return `${selectedCurrency.symbol}${numericPrice.toFixed(2)}`;
-    }
-    
-    if (!exchangeRates[selectedCurrency.code]) {
-      if (selectedCurrency.code === "JPY") {
-        return `${selectedCurrency.symbol}${Math.round(numericPrice)}`;
-      }
-      return `${selectedCurrency.symbol}${numericPrice.toFixed(2)}`;
+    const numericPrice = normalizeNumber(numericMatch[0]);
+    if (numericPrice === null) {
+      return formatAmount(0, selectedCurrency);
     }
 
-    const convertedPrice = numericPrice * exchangeRates[selectedCurrency.code];
+    const sourceCurrencyCode = detectCurrencyCode(rawPrice);
+    const suffix = getPriceSuffix(rawPrice, numericMatch);
 
-    if (selectedCurrency.code === "JPY") {
-      return `${selectedCurrency.symbol}${Math.round(convertedPrice)}`;
+    if (selectedCurrency.code === sourceCurrencyCode) {
+      return `${formatAmount(numericPrice, selectedCurrency)}${suffix}`;
     }
 
-    return `${selectedCurrency.symbol}${convertedPrice.toFixed(2)}`;
+    const sourceRate = exchangeRates[sourceCurrencyCode] || fallbackExchangeRates[sourceCurrencyCode] || 1;
+    const targetRate = exchangeRates[selectedCurrency.code] || fallbackExchangeRates[selectedCurrency.code] || 1;
+
+    if (!sourceRate || !targetRate) {
+      return `${formatAmount(numericPrice, selectedCurrency)}${suffix}`;
+    }
+
+    const basePrice = numericPrice / sourceRate;
+    const convertedPrice = basePrice * targetRate;
+
+    return `${formatAmount(convertedPrice, selectedCurrency)}${suffix}`;
   };
 
   return {

@@ -15,7 +15,7 @@ const geistSans = Geist({
   display: "swap",
   preload: true,
 });
-// hi there
+
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
@@ -38,7 +38,31 @@ const quicksand = Quicksand({
   display: "swap",
   preload: false,
 });
-// hello again
+
+const siteUrl = "https://snapgrids.store";
+const seoTitle = "SnapGrids - Cheap Game Server, VPS & Web Hosting in INR";
+const seoDescription =
+  "SnapGrids provides affordable high-performance game server hosting, VPS hosting, web hosting, Discord bot hosting, and dedicated servers with NVMe storage, DDoS protection, INR pricing, and fast global connectivity.";
+const seoKeywords = [
+  "cheap game server hosting",
+  "best game hosting",
+  "high performance game hosting",
+  "minecraft server hosting",
+  "rust server hosting",
+  "palworld server hosting",
+  "ARK server hosting",
+  "VPS hosting",
+  "cheap VPS hosting",
+  "web hosting India",
+  "Discord bot hosting",
+  "dedicated server hosting",
+  "NVMe hosting",
+  "DDoS protected hosting",
+  "low latency hosting",
+  "INR hosting plans",
+  "SnapGrids",
+];
+
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
@@ -50,53 +74,40 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
-    default: "SnapGrids - Game Hosting, VPS & Dedicated Servers",
+    default: seoTitle,
     template: "%s | SnapGrids"
   },
-  description: "Premium game hosting, VPS & dedicated servers by SnapGrids. High-performance infrastructure with 99.9% uptime, DDoS protection & 24/7 support.",
-  keywords: [
-    "game hosting",
-    "minecraft hosting",
-    "discord bot hosting",
-    "VPS hosting",
-    "dedicated servers",
-    "cloud servers",
-    "gaming servers",
-    "SnapGrids",
-    "low latency hosting",
-    "DDoS protection",
-    "24/7 support",
-    "custom server hosting",
-    "modded game hosting",
-    "server rental"
-  ],
+  description: seoDescription,
+  keywords: seoKeywords,
   authors: [{ name: "Anthony" }],
   creator: "Anthony",
   publisher: "SnapGrids",
-  category: "Game Hosting & Server Solutions",
+  category: "Game Server Hosting, VPS Hosting, Web Hosting, and Dedicated Servers",
   openGraph: {
     type: "website",
-    locale: "en_US",
-    url: "https://snapgrids.store",
-    siteName: "SnapGrids - Game Hosting & Servers",
-    title: "SnapGrids - Game Hosting, VPS & Dedicated Servers",
-    description: "Premium game hosting, VPS, and dedicated server solutions. High-performance infrastructure for gaming communities and developers with DDoS protection.",
+    locale: "en_IN",
+    alternateLocale: ["en_US", "en_GB"],
+    url: siteUrl,
+    siteName: "SnapGrids",
+    title: seoTitle,
+    description: seoDescription,
     images: [
       {
-        url: "https://snapgrids.store/meta/Banner.png",
+        url: "/meta/Banner.png",
         width: 1200,
         height: 630,
-        alt: "SnapGrids - Game Hosting, VPS & Dedicated Servers",
+        alt: "SnapGrids high-performance hosting for games, VPS, web hosting, and dedicated servers",
         type: "image/png"
       }
     ]
   },
   twitter: {
     card: "summary_large_image",
-    title: "SnapGrids - Game Hosting, VPS & Dedicated Servers",
-    description: "Premium game hosting and server solutions. High-performance infrastructure for gaming communities with DDoS protection and 24/7 support.",
-    images: ["https://snapgrids.store/meta/Banner.png"]
+    title: seoTitle,
+    description: seoDescription,
+    images: ["/meta/Banner.png"]
   },
   robots: {
     index: true,
@@ -134,16 +145,135 @@ export const metadata: Metadata = {
   },
 
   alternates: {
-    canonical: "https://snapgrids.store"
+    canonical: siteUrl,
+    languages: {
+      "en-IN": siteUrl,
+      "en-US": siteUrl,
+      "x-default": siteUrl,
+    },
   },
   other: {
     "msapplication-TileColor": "#1e40af",
     "msapplication-config": "/browserconfig.xml",
-    "terms-of-service": "https://snapgrids.store/terms-of-services",
-    "privacy-policy": "https://snapgrids.store/privacy-policy"
+    "terms-of-service": `${siteUrl}/terms-of-services`,
+    "privacy-policy": `${siteUrl}/privacy-policy`,
+    "geo.region": "IN",
+    "geo.placename": "India",
+    "geo.country": "India",
+    "distribution": "global",
+    "rating": "general",
+    "target": "game server hosting, VPS hosting, web hosting, dedicated servers",
   }
 };
-// yo yo, wassup, ma name is big A aka the big ANTHONYYYYYYYYYYYYYYYYYY. like my work so far? rate it a 5 star on BBB pweaseeeeeeeeee
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${siteUrl}/#organization`,
+      name: "SnapGrids",
+      url: siteUrl,
+      logo: `${siteUrl}/meta/Logo.png`,
+      description: seoDescription,
+      sameAs: ["https://discord.gg/Qrzn2enUP2"],
+      contactPoint: [
+        {
+          "@type": "ContactPoint",
+          contactType: "customer support",
+          availableLanguage: ["English", "Hindi"],
+          url: "https://discord.gg/Qrzn2enUP2",
+        },
+      ],
+      areaServed: [
+        { "@type": "Country", name: "India" },
+        { "@type": "Place", name: "Worldwide" },
+      ],
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${siteUrl}/#website`,
+      url: siteUrl,
+      name: "SnapGrids",
+      description: seoDescription,
+      inLanguage: "en-IN",
+      publisher: { "@id": `${siteUrl}/#organization` },
+      keywords: seoKeywords.join(", "),
+    },
+    {
+      "@type": "Service",
+      "@id": `${siteUrl}/#hosting-services`,
+      name: "SnapGrids hosting services",
+      description: seoDescription,
+      serviceType: [
+        "Game Server Hosting",
+        "VPS Hosting",
+        "Web Hosting",
+        "Discord Bot Hosting",
+        "Dedicated Server Hosting",
+      ],
+      provider: { "@id": `${siteUrl}/#organization` },
+      areaServed: [
+        { "@type": "Country", name: "India" },
+        { "@type": "Place", name: "Worldwide" },
+      ],
+      offers: {
+        "@type": "AggregateOffer",
+        priceCurrency: "INR",
+        lowPrice: "75",
+        offerCount: "5",
+        availability: "https://schema.org/InStock",
+      },
+      hasOfferCatalog: {
+        "@type": "OfferCatalog",
+        name: "Game, VPS, Web, Bot, and Dedicated Hosting Plans",
+        itemListElement: [
+          {
+            "@type": "Offer",
+            itemOffered: {
+              "@type": "Service",
+              name: "Game Server Hosting",
+              url: `${siteUrl}/games`,
+            },
+          },
+          {
+            "@type": "Offer",
+            itemOffered: {
+              "@type": "Service",
+              name: "VPS Hosting",
+              url: `${siteUrl}/vps`,
+            },
+          },
+          {
+            "@type": "Offer",
+            itemOffered: {
+              "@type": "Service",
+              name: "Web Hosting",
+              url: `${siteUrl}/webhosting`,
+            },
+          },
+          {
+            "@type": "Offer",
+            itemOffered: {
+              "@type": "Service",
+              name: "Discord Bot Hosting",
+              url: `${siteUrl}/discord`,
+            },
+          },
+          {
+            "@type": "Offer",
+            itemOffered: {
+              "@type": "Service",
+              name: "Dedicated Server Hosting",
+              url: `${siteUrl}/dedicated`,
+            },
+          },
+        ],
+      },
+    },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -157,67 +287,11 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="SnapGrids" />
-        <meta name="crawl-delay" content="10" />
         <meta name="revisit-after" content="7 days" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "Organization",
-              "name": "SnapGrids",
-              "url": "https://snapgrids.store",
-              "logo": "https://snapgrids.store/meta/Logo.png",
-              "description": "Premium game hosting, VPS, and dedicated server solutions for gaming communities and developers",
-              "serviceType": ["Game Server Hosting", "VPS Hosting", "Dedicated Servers", "Cloud Infrastructure"],
-              "areaServed": "Worldwide",
-              "hasOfferCatalog": {
-                "@type": "OfferCatalog",
-                "name": "Gaming & Server Solutions",
-                "itemListElement": [
-                  {
-                    "@type": "Offer",
-                    "itemOffered": {
-                      "@type": "Service",
-                      "name": "Game Server Hosting",
-                      "description": "High-performance game servers with DDoS protection"
-                    }
-                  },
-                  {
-                    "@type": "Offer", 
-                    "itemOffered": {
-                      "@type": "Service",
-                      "name": "VPS Hosting",
-                      "description": "Virtual private servers with full root access"
-                    }
-                  },
-                  {
-                    "@type": "Offer",
-                    "itemOffered": {
-                      "@type": "Service", 
-                      "name": "Dedicated Servers",
-                      "description": "Bare metal servers for maximum performance"
-                    }
-                  }
-                ]
-              },
-              "sameAs": [
-                "https://discord.gg/Qrzn2enUP2"
-              ],
-              "contactPoint": {
-                "@type": "ContactPoint",
-                "contactType": "customer service",
-                "availableLanguage": "English",
-                "serviceType": "Technical Support",
-                "url": "https://discord.gg/Qrzn2enUP2"
-              },
-              "founder": {
-                "@type": "Person",
-                "name": "Anthony "
-              },
-              "termsOfService": "https://snapgrids.store/terms-of-services",
-              "privacyPolicy": "https://snapgrids.store/privacy-policy"
-            })
+            __html: JSON.stringify(structuredData)
           }}
         />
       </head>

@@ -10,7 +10,8 @@ export interface UIConfig {
     loadingDuration: number;
   };
   currency: {
-    apiKey: string;
+    apiKey?: string;
+    ratesEndpoint?: string;
     baseCurrency: string;
     defaultCurrency: string;
     supportedCurrencies: Currency[];

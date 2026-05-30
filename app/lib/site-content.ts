@@ -33,7 +33,7 @@ const defaultServices: CmsServicePage[] = [
     icon: "/vps.png",
     banner: "/vps/vps-hero-2.webp",
     primaryColor: "#3b82f6",
-    startingAt: "$2.70/mo",
+    startingAt: "\u20b9225/mo",
     visible: true,
     comingSoon: false,
     comingSoonMessage: "",
@@ -49,7 +49,7 @@ const defaultServices: CmsServicePage[] = [
     icon: "/dedicated.webp",
     banner: "/dedicated.webp",
     primaryColor: "#3b82f6",
-    startingAt: "$99.99/mo",
+    startingAt: "\u20b98,349/mo",
     visible: true,
     comingSoon: false,
     comingSoonMessage: "",
@@ -65,7 +65,7 @@ const defaultServices: CmsServicePage[] = [
     icon: "/banners/webhosting.png",
     banner: "/banners/webhosting.png",
     primaryColor: "#3b82f6",
-    startingAt: "$2.99/mo",
+    startingAt: "\u20b9249/mo",
     visible: true,
     comingSoon: false,
     comingSoonMessage: "",
@@ -81,7 +81,7 @@ const defaultServices: CmsServicePage[] = [
     icon: "/icons/nodejs.png",
     banner: "/banners/node.webp",
     primaryColor: "#22c55e",
-    startingAt: "$0.90/mo",
+    startingAt: "\u20b975/mo",
     visible: true,
     comingSoon: false,
     comingSoonMessage: "",
@@ -135,7 +135,7 @@ function defaultGames(): CmsGamePage[] {
 
 function serviceDefaultsFromPricing() {
   const priceByRoute = new Map(
-    pricingDefaults.section.plans.map((plan) => [plan.link, `$${plan.basePrice.toFixed(2)}/mo`])
+    pricingDefaults.section.plans.map((plan) => [plan.link, `\u20b9${Math.round(plan.basePrice * 83.5).toLocaleString("en-IN")}/mo`])
   )
 
   return defaultServices.map((service) => ({
@@ -380,7 +380,7 @@ export function sanitizeSiteContent(value: Partial<SiteContent> | undefined, map
         icon: "/meta/Logo.png",
         banner: "/meta/Banner.png",
         primaryColor: "#3b82f6",
-        startingAt: "$0.00/mo",
+        startingAt: "\u20b90/mo",
         featured: false,
         visible: true,
         comingSoon: false,
@@ -405,7 +405,7 @@ export function sanitizeSiteContent(value: Partial<SiteContent> | undefined, map
         icon: "/meta/Logo.png",
         banner: "/meta/Banner.png",
         primaryColor: "#3b82f6",
-        startingAt: "$0.00/mo",
+        startingAt: "\u20b90/mo",
         visible: true,
         comingSoon: false,
         comingSoonMessage: "",

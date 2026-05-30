@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import DiscordPricingSection from '../components/discord/DiscordPricingSection';
 import FeaturesSection from "../components/FeaturesSection"
 import FAQSection from "../components/FAQSection"
@@ -10,6 +11,26 @@ import { readPublicSiteContent } from "@/lib/public-site-config"
 import { findServicePage } from "../lib/site-content"
 
 export const dynamic = "force-dynamic"
+
+export async function generateMetadata(): Promise<Metadata> {
+  const site = await readPublicSiteContent()
+  const pageConfig = findServicePage(site, "discord")
+
+  return {
+    title: `Cheap ${pageConfig?.name || "Discord Bot Hosting"} from ${pageConfig?.startingAt || "\u20b975/mo"}`,
+    description:
+      pageConfig?.description ||
+      "Reliable Discord bot hosting for Node.js bots and lightweight apps with INR pricing, NVMe storage, and DDoS protection.",
+    alternates: {
+      canonical: "/discord",
+    },
+    openGraph: {
+      title: "Cheap Discord Bot Hosting | SnapGrids",
+      description: "Reliable Discord bot hosting for Node.js bots and lightweight apps with INR pricing.",
+      url: "/discord",
+    },
+  }
+}
 
 export default async function DiscordPage() {
   const site = await readPublicSiteContent()

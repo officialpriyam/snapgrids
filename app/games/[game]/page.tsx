@@ -12,6 +12,7 @@ import { readPublicSiteContent } from "@/lib/public-site-config"
 import { findGamePage, visibleGames } from "../../lib/site-content"
 
 export const dynamic = "force-dynamic"
+const siteUrl = "https://snapgrids.store"
 
 type GamePageProps = {
   params: Promise<{
@@ -31,8 +32,17 @@ export async function generateMetadata({ params }: GamePageProps): Promise<Metad
   }
 
   return {
-    title: `${game.name} Hosting`,
-    description: game.description,
+    title: `Cheap ${game.name} Server Hosting from ${game.startingAt}`,
+    description: `${game.description} Get high-performance ${game.name} server hosting from ${game.startingAt} with NVMe storage, DDoS protection, and fast global connectivity.`,
+    alternates: {
+      canonical: `/games/${game.slug}`,
+    },
+    openGraph: {
+      title: `${game.name} Server Hosting | SnapGrids`,
+      description: `${game.description} Starting from ${game.startingAt}.`,
+      url: `${siteUrl}/games/${game.slug}`,
+      images: game.banner ? [{ url: game.banner, alt: `${game.name} server hosting` }] : undefined,
+    },
   }
 }
 

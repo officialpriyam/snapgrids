@@ -12,6 +12,7 @@ import { readPublicSiteContent } from "@/lib/public-site-config"
 import { findServicePage, visibleServices } from "../../lib/site-content"
 
 export const dynamic = "force-dynamic"
+const siteUrl = "https://snapgrids.store"
 
 type ServicePageProps = {
   params: Promise<{
@@ -25,8 +26,21 @@ export async function generateMetadata({ params }: ServicePageProps): Promise<Me
   const page = findServicePage(site, service)
 
   return {
-    title: page ? page.name : "Hosting",
-    description: page?.description,
+    title: page ? `Cheap ${page.name} from ${page.startingAt}` : "Hosting",
+    description: page
+      ? `${page.description} Start ${page.name.toLowerCase()} from ${page.startingAt} with SnapGrids NVMe infrastructure, DDoS protection, and fast global connectivity.`
+      : "Affordable high-performance hosting from SnapGrids.",
+    alternates: {
+      canonical: page?.route || `/hosting/${service}`,
+    },
+    openGraph: page
+      ? {
+          title: `${page.name} | SnapGrids`,
+          description: `${page.description} Starting from ${page.startingAt}.`,
+          url: `${siteUrl}${page.route}`,
+          images: page.banner ? [{ url: page.banner, alt: `${page.name} by SnapGrids` }] : undefined,
+        }
+      : undefined,
   }
 }
 

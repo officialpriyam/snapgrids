@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import type React from "react"
 import Image from "next/image"
 import Link from "next/link"
@@ -12,6 +13,21 @@ import { readPublicSiteContent } from "@/lib/public-site-config"
 import { visibleGames } from "../lib/site-content"
 
 export const dynamic = "force-dynamic"
+
+export const metadata: Metadata = {
+  title: "Cheap Game Server Hosting",
+  description:
+    "Compare SnapGrids game server hosting for Minecraft, Rust, ARK, Valheim, Garry's Mod, CS:GO, and Discord bots with INR starting prices, NVMe storage, and DDoS protection.",
+  alternates: {
+    canonical: "/games",
+  },
+  openGraph: {
+    title: "Cheap Game Server Hosting | SnapGrids",
+    description:
+      "Affordable high-performance game server hosting with INR pricing, NVMe storage, low latency, and DDoS protection.",
+    url: "/games",
+  },
+}
 
 export default async function GamesPage() {
   const site = await readPublicSiteContent()
