@@ -1,6 +1,6 @@
-# 🚀 Nova Website Template
+# 🚀 SnapGrids Website
 
-Welcome! Thank you for purchasing Nova - a modern, responsive website template for hosting services.
+Welcome! Thank you for using the SnapGrids hosting website.
 
 ## 📋 Important Notes
 
@@ -48,7 +48,7 @@ Customize your website by modifying these key files:
 3. **Build and Start the Application**
    ```bash
    npm run build
-   pm2 start npm --name "nova-website" -- start
+   pm2 start npm --name "snapgrids-website" -- start
    ```
 
    The application will run on `localhost:3000`
@@ -56,10 +56,10 @@ Customize your website by modifying these key files:
 4. **PM2 Management Commands**
    ```bash
    pm2 list              # View running processes
-   pm2 restart nova-website    # Restart the app
-   pm2 stop nova-website       # Stop the app
-   pm2 delete nova-website     # Delete the app from PM2
-   pm2 logs nova-website       # View logs
+   pm2 restart snapgrids-website    # Restart the app
+   pm2 stop snapgrids-website       # Stop the app
+   pm2 delete snapgrids-website     # Delete the app from PM2
+   pm2 logs snapgrids-website       # View logs
    ```
 
 ### 🔧 Nginx Reverse Proxy Setup
@@ -112,7 +112,7 @@ sudo certbot --nginx -d your-domain.com -d www.your-domain.com
 
 ### ☁️ Vercel Deployment Guide
 
-Deploy your Nova website template to Vercel for easy hosting and automatic deployments.
+Deploy your SnapGrids website to Vercel for easy hosting and automatic deployments.
 
 #### Prerequisites
 - GitHub account

@@ -51,10 +51,10 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: "DezerNova - Game Hosting, VPS & Dedicated Servers",
-    template: "%s | DezerNova"
+    default: "SnapGrids - Game Hosting, VPS & Dedicated Servers",
+    template: "%s | SnapGrids"
   },
-  description: "Premium game hosting, VPS & dedicated servers by DezerNova. High-performance infrastructure with 99.9% uptime, DDoS protection & 24/7 support.",
+  description: "Premium game hosting, VPS & dedicated servers by SnapGrids. High-performance infrastructure with 99.9% uptime, DDoS protection & 24/7 support.",
   keywords: [
     "game hosting",
     "minecraft hosting",
@@ -63,7 +63,7 @@ export const metadata: Metadata = {
     "dedicated servers",
     "cloud servers",
     "gaming servers",
-    "DezerNova",
+    "SnapGrids",
     "low latency hosting",
     "DDoS protection",
     "24/7 support",
@@ -73,30 +73,30 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Anthony" }],
   creator: "Anthony",
-  publisher: "DezerX | NovaTemplate",
+  publisher: "SnapGrids",
   category: "Game Hosting & Server Solutions",
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://nova.dezerx.com",
-    siteName: "DezerNova - Game Hosting & Servers",
-    title: "DezerNova - Game Hosting, VPS & Dedicated Servers",
+    url: "https://snapgrids.store",
+    siteName: "SnapGrids - Game Hosting & Servers",
+    title: "SnapGrids - Game Hosting, VPS & Dedicated Servers",
     description: "Premium game hosting, VPS, and dedicated server solutions. High-performance infrastructure for gaming communities and developers with DDoS protection.",
     images: [
       {
-        url: "https://nova.dezerx.com/meta/Banner.png",
+        url: "https://snapgrids.store/meta/Banner.png",
         width: 1200,
         height: 630,
-        alt: "DezerNova - Game Hosting, VPS & Dedicated Servers",
+        alt: "SnapGrids - Game Hosting, VPS & Dedicated Servers",
         type: "image/png"
       }
     ]
   },
   twitter: {
     card: "summary_large_image",
-    title: "DezerNova - Game Hosting, VPS & Dedicated Servers",
+    title: "SnapGrids - Game Hosting, VPS & Dedicated Servers",
     description: "Premium game hosting and server solutions. High-performance infrastructure for gaming communities with DDoS protection and 24/7 support.",
-    images: ["https://nova.dezerx.com/meta/Banner.png"]
+    images: ["https://snapgrids.store/meta/Banner.png"]
   },
   robots: {
     index: true,
@@ -118,29 +118,29 @@ export const metadata: Metadata = {
     google: "vzsKvhNUgAPlCbf1annB0Sl-bttSFos87mhOyQSU2aY", 
   },
 
-  applicationName: "DezerNova",
+  applicationName: "SnapGrids",
   referrer: "origin-when-cross-origin",
 
   manifest: "/manifest.json",
   icons: {
     icon: [
       { url: "/meta/Logo.png", sizes: "32x32", type: "image/png" },
-      { url: "/meta/Logo.png", sizes: "16x16", type: "image/png" }
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" }
     ],
     apple: [
       { url: "/meta/Logo.png", sizes: "180x180", type: "image/png" }
     ],
-    shortcut: "/meta/Logo.png"
+    shortcut: "/favicon.ico"
   },
 
   alternates: {
-    canonical: "https://nova.dezerx.com"
+    canonical: "https://snapgrids.store"
   },
   other: {
     "msapplication-TileColor": "#1e40af",
     "msapplication-config": "/browserconfig.xml",
-    "terms-of-service": "https://nova.dezerx.com/terms-of-services",
-    "privacy-policy": "https://nova.dezerx.com/privacy-policy"
+    "terms-of-service": "https://snapgrids.store/terms-of-services",
+    "privacy-policy": "https://snapgrids.store/privacy-policy"
   }
 };
 // yo yo, wassup, ma name is big A aka the big ANTHONYYYYYYYYYYYYYYYYYY. like my work so far? rate it a 5 star on BBB pweaseeeeeeeeee
@@ -156,7 +156,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="DezerNova" />
+        <meta name="apple-mobile-web-app-title" content="SnapGrids" />
         <meta name="crawl-delay" content="10" />
         <meta name="revisit-after" content="7 days" />
         <script
@@ -165,9 +165,9 @@ export default function RootLayout({
             __html: JSON.stringify({
               "@context": "https://schema.org",
               "@type": "Organization",
-              "name": "DezerNova",
-              "url": "https://nova.dezerx.com",
-              "logo": "https://nova.dezerx.com/meta/Logo.png",
+              "name": "SnapGrids",
+              "url": "https://snapgrids.store",
+              "logo": "https://snapgrids.store/meta/Logo.png",
               "description": "Premium game hosting, VPS, and dedicated server solutions for gaming communities and developers",
               "serviceType": ["Game Server Hosting", "VPS Hosting", "Dedicated Servers", "Cloud Infrastructure"],
               "areaServed": "Worldwide",
@@ -215,8 +215,8 @@ export default function RootLayout({
                 "@type": "Person",
                 "name": "Anthony "
               },
-              "termsOfService": "https://nova.dezerx.com/terms-of-services",
-              "privacyPolicy": "https://nova.dezerx.com/privacy-policy"
+              "termsOfService": "https://snapgrids.store/terms-of-services",
+              "privacyPolicy": "https://snapgrids.store/privacy-policy"
             })
           }}
         />

@@ -1,8 +1,8 @@
 {
   "navbar": {
-    "logo": "/banners/Dezer-Banner.webp",
-    "brandName": "Dezer",
-    "brandAccent": "Host"
+    "logo": "/meta/Logo.png",
+    "brandName": "Snap",
+    "brandAccent": "Grids"
   },
   "hero": {
     "title": {
@@ -102,8 +102,8 @@
         "loading": "lazy"
       },
       {
-        "name": "DezerX",
-        "src": "/banners/Dezer-Banner.webp",
+        "name": "SnapGrids",
+        "src": "/meta/Logo.png",
         "loading": "lazy"
       }
     ]

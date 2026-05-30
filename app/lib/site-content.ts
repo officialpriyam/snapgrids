@@ -247,7 +247,7 @@ export function defaultFooter(): CmsFooter {
     logo: "/meta/Logo.png",
     description: "Premium hosting infrastructure for game servers, virtual servers, dedicated machines, and web projects.",
     credit: "Made by Anthony S",
-    copyright: "DezerNova. All rights reserved.",
+    copyright: "SnapGrids. All rights reserved.",
     quickLinks: [
       { label: "Client Area", href: "#" },
       { label: "Discord", href: "#" },
@@ -260,9 +260,9 @@ export function defaultFooter(): CmsFooter {
       { label: "Privacy Policy", href: "/privacy-policy" },
     ],
     contacts: [
-      { icon: "mail", label: "Email", value: "support@dezerx.com", href: "mailto:support@dezerx.com" },
+      { icon: "mail", label: "Email", value: "support@snapgrids.store", href: "mailto:support@snapgrids.store" },
       { icon: "phone", label: "Phone", value: "N/A", href: "tel:+15551234567" },
-      { icon: "gamepad", label: "Game Panel", value: "panel.dezerx.com", href: "https://panel.dezerx.com" },
+      { icon: "gamepad", label: "Game Panel", value: "panel.snapgrids.store", href: "https://panel.snapgrids.store" },
     ],
   }
 }

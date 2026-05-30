@@ -16,7 +16,7 @@ function LoadingScreen() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-lg text-gray-900 dark:text-white orbitron-font">
-            Nova
+            SnapGrids
           </span>
         </div>
       </div>

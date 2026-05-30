@@ -1,6 +1,6 @@
 {
-  "name": "DezerX Nova - Game Hosting & Servers",
-  "short_name": "Nova Gaming",
+  "name": "SnapGrids - Game Hosting & Servers",
+  "short_name": "SnapGrids",
   "description": "Premium game hosting, VPS, and dedicated server solutions",
   "start_url": "/",
   "display": "standalone",
@@ -49,7 +49,7 @@
       "sizes": "1200x630",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "DezerX Nova Gaming Platform"
+      "label": "SnapGrids Gaming Platform"
     }
   ],
   "shortcuts": [
