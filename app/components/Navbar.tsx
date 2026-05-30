@@ -357,7 +357,6 @@ const Navbar: React.FC = () => {
       case 'cloud': return t('navbar.cloud');
       case 'dedicated': return t('navbar.dedicated');
       case 'discordbot': return t('navbar.discord');
-      case 'otherhosting': return 'Other Hosting';
       case 'webhosting': return t('navbar.webhosting');
       case 'legal': return t('navbar.legal');
       default: return itemName;

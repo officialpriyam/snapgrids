@@ -8,12 +8,6 @@
       "dropdownType": "games"
     },
     {
-      "name": "Other Hosting",
-      "href": "/otherhosting",
-      "icon": "Server",
-      "hasDropdown": false
-    },
-    {
       "name": "Cloud",
       "href": "/vps",
       "icon": "Cloud",

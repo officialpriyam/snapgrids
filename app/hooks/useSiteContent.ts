@@ -20,6 +20,10 @@ export function useSiteContent() {
       try {
         const response = await fetch("/api/site-config", {
           signal: controller.signal,
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache",
+          },
         })
         if (!response.ok) {
           return

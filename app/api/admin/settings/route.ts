@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { revalidatePath } from "next/cache"
 import {
   normalizeBillingUrl,
   sanitizeAdminSettings,
@@ -12,13 +13,43 @@ import { jsonError, requireAdmin } from "../_utils"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+function noStoreJson(body: unknown, init?: ResponseInit) {
+  const headers = new Headers(init?.headers)
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+  headers.set("Pragma", "no-cache")
+  headers.set("Expires", "0")
+  return NextResponse.json(body, { ...init, headers })
+}
+
+function revalidatePublicSite() {
+  const staticPaths = [
+    "/",
+    "/games",
+    "/otherhosting",
+    "/vps",
+    "/dedicated",
+    "/discord",
+    "/webhosting",
+    "/privacy-policy",
+    "/terms-of-services",
+    "/sitemap.xml",
+  ]
+
+  for (const path of staticPaths) {
+    revalidatePath(path)
+  }
+
+  revalidatePath("/games/[game]", "page")
+  revalidatePath("/hosting/[service]", "page")
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request)
   if ("response" in auth) {
     return auth.response
   }
 
-  return NextResponse.json(sanitizeAdminSettings(auth.config))
+  return noStoreJson(sanitizeAdminSettings(auth.config))
 }
 
 export async function PUT(request: NextRequest) {
@@ -69,6 +100,7 @@ export async function PUT(request: NextRequest) {
   }
 
   await writeAdminConfig(config)
+  revalidatePublicSite()
 
-  return NextResponse.json(sanitizeAdminSettings(config))
+  return noStoreJson(sanitizeAdminSettings(config))
 }

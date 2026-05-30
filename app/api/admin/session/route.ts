@@ -5,12 +5,20 @@ import { readAdminConfig, sanitizeAdminSettings } from "@/lib/admin-config"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+function noStoreJson(body: unknown, init?: ResponseInit) {
+  const headers = new Headers(init?.headers)
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+  headers.set("Pragma", "no-cache")
+  headers.set("Expires", "0")
+  return NextResponse.json(body, { ...init, headers })
+}
+
 export async function GET(request: NextRequest) {
   let config
   try {
     config = await readAdminConfig()
   } catch (error) {
-    return NextResponse.json(
+    return noStoreJson(
       {
         authenticated: false,
         settings: null,
@@ -22,7 +30,7 @@ export async function GET(request: NextRequest) {
 
   const authenticated = verifySessionToken(request.cookies.get(ADMIN_COOKIE)?.value, config)
 
-  return NextResponse.json({
+  return noStoreJson({
     authenticated,
     settings: authenticated ? sanitizeAdminSettings(config) : null,
   })
