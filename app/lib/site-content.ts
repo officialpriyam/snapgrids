@@ -1,8 +1,10 @@
 import gamesConfig from "../config/sections/games.json"
+import heroConfig from "../config/sections/hero.json"
 import legalConfig from "../config/sections/legal.json"
 import navigationConfig from "../config/sections/navigation.json"
 import pricingConfig from "../config/sections/pricing.json"
 import type { GamesConfig } from "../types/games"
+import type { HeroConfig } from "../types/hero"
 import type { LegalConfig, LegalPageConfig, LegalSection } from "../types/legal"
 import type { DropdownItem, NavigationConfig, NavigationItem, SocialLink } from "../types/navigation"
 import type { PricingConfig } from "../types/pricing"
@@ -12,15 +14,71 @@ import type {
   CmsFooterLink,
   CmsGamePage,
   CmsHomeGameSection,
+  CmsHomeHero,
+  CmsHomeServiceSection,
+  CmsLocation,
+  CmsSeasonEffect,
   CmsServicePage,
   SiteContent,
 } from "../types/site"
 import type { AdminMappings } from "../types/paymenter"
 
 const gameDefaults = gamesConfig as GamesConfig
+const heroDefaults = heroConfig as HeroConfig
 const legalDefaults = legalConfig as LegalConfig
 const navigationDefaults = navigationConfig as NavigationConfig
 const pricingDefaults = pricingConfig as PricingConfig
+
+const defaultLocations: CmsLocation[] = [
+  {
+    id: "mumbai-in",
+    name: "Mumbai",
+    region: "India West",
+    group: "India",
+    flag: "/flags/india.png",
+    ping: "low latency",
+    status: "active",
+    lat: 19.076,
+    lng: 72.8777,
+    visible: true,
+  },
+  {
+    id: "frankfurt-de",
+    name: "Frankfurt",
+    region: "EU Central",
+    group: "Europe",
+    flag: "/flags/germany.png",
+    ping: "low latency",
+    status: "active",
+    lat: 50.1109,
+    lng: 8.6821,
+    visible: true,
+  },
+  {
+    id: "singapore-sg",
+    name: "Singapore",
+    region: "Asia Pacific",
+    group: "Asia",
+    flag: "/flags/singapore.png",
+    ping: "low latency",
+    status: "active",
+    lat: 1.3521,
+    lng: 103.8198,
+    visible: true,
+  },
+  {
+    id: "chicago-us",
+    name: "Chicago, IL",
+    region: "US Central",
+    group: "Americas",
+    flag: "/flags/usa.png",
+    ping: "low latency",
+    status: "active",
+    lat: 41.8781,
+    lng: -87.6298,
+    visible: true,
+  },
+]
 
 const defaultServices: CmsServicePage[] = [
   {
@@ -34,6 +92,7 @@ const defaultServices: CmsServicePage[] = [
     banner: "/vps/vps-hero-2.webp",
     primaryColor: "#3b82f6",
     startingAt: "\u20b9225/mo",
+    featured: true,
     visible: true,
     comingSoon: false,
     comingSoonMessage: "",
@@ -50,6 +109,7 @@ const defaultServices: CmsServicePage[] = [
     banner: "/dedicated.webp",
     primaryColor: "#3b82f6",
     startingAt: "\u20b98,349/mo",
+    featured: true,
     visible: true,
     comingSoon: false,
     comingSoonMessage: "",
@@ -66,6 +126,7 @@ const defaultServices: CmsServicePage[] = [
     banner: "/banners/webhosting.png",
     primaryColor: "#3b82f6",
     startingAt: "\u20b9249/mo",
+    featured: true,
     visible: true,
     comingSoon: false,
     comingSoonMessage: "",
@@ -82,6 +143,7 @@ const defaultServices: CmsServicePage[] = [
     banner: "/banners/node.webp",
     primaryColor: "#22c55e",
     startingAt: "\u20b975/mo",
+    featured: true,
     visible: true,
     comingSoon: false,
     comingSoonMessage: "",
@@ -110,9 +172,37 @@ function bool(value: unknown, fallback = false) {
   return typeof value === "boolean" ? value : fallback
 }
 
+function numberValue(value: unknown, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
 function normalizeRoute(route: string, slug: string) {
   const clean = route.trim()
   return clean.startsWith("/") ? clean : `/hosting/${slug}`
+}
+
+function defaultHero(): CmsHomeHero {
+  return {
+    titlePrefix: "Host your own",
+    titleSuffix: "Servers",
+    description: "Experience lightning-fast performance, reliable support, and affordable hosting for games, VPS, web, Discord bots, and dedicated workloads.",
+    primaryButtonText: "Get started",
+    primaryButtonHref: "/games",
+    secondaryButtonText: "View hosting",
+    secondaryButtonHref: "/otherhosting",
+    helperText: "Get started for free!",
+    cycleInterval: positiveInteger(heroDefaults.hero.cycleInterval, 10000),
+    slides: heroDefaults.hero.games.map((slide) => ({
+      id: slugifySiteId(slide.id || slide.name),
+      name: slide.name,
+      displayName: slide.displayName,
+      banner: slide.banner,
+      color: slide.color,
+      showSuffix: bool(slide.showSuffix, true),
+      visible: bool(slide.showInDropdown, true),
+    })),
+  }
 }
 
 function defaultGames(): CmsGamePage[] {
@@ -173,6 +263,41 @@ function normalizeGamePage(value: Partial<CmsGamePage>, fallback: CmsGamePage, m
   }
 }
 
+function normalizeHeroSlide(value: Partial<CmsHomeHero["slides"][number]>, fallback: CmsHomeHero["slides"][number]): CmsHomeHero["slides"][number] {
+  const name = text(value.name, fallback.name)
+  const id = slugifySiteId(text(value.id, fallback.id) || name) || fallback.id
+
+  return {
+    id,
+    name,
+    displayName: text(value.displayName, fallback.displayName || name),
+    banner: text(value.banner, fallback.banner),
+    color: text(value.color, fallback.color),
+    showSuffix: bool(value.showSuffix, fallback.showSuffix),
+    visible: bool(value.visible, fallback.visible),
+  }
+}
+
+function normalizeHero(value: Partial<CmsHomeHero> | undefined): CmsHomeHero {
+  const fallback = defaultHero()
+  const rawSlides = Array.isArray(value?.slides) ? value.slides : fallback.slides
+
+  return {
+    titlePrefix: text(value?.titlePrefix, fallback.titlePrefix),
+    titleSuffix: text(value?.titleSuffix, fallback.titleSuffix),
+    description: text(value?.description, fallback.description),
+    primaryButtonText: text(value?.primaryButtonText, fallback.primaryButtonText),
+    primaryButtonHref: text(value?.primaryButtonHref, fallback.primaryButtonHref),
+    secondaryButtonText: text(value?.secondaryButtonText, fallback.secondaryButtonText),
+    secondaryButtonHref: text(value?.secondaryButtonHref, fallback.secondaryButtonHref),
+    helperText: text(value?.helperText, fallback.helperText),
+    cycleInterval: positiveInteger(value?.cycleInterval, fallback.cycleInterval),
+    slides: rawSlides.map((slide, index) =>
+      normalizeHeroSlide(slide as Partial<CmsHomeHero["slides"][number]>, fallback.slides[index] ?? fallback.slides[0])
+    ),
+  }
+}
+
 function normalizeServicePage(
   value: Partial<CmsServicePage>,
   fallback: CmsServicePage,
@@ -192,10 +317,63 @@ function normalizeServicePage(
     banner: text(value.banner, fallback.banner),
     primaryColor: text(value.primaryColor, fallback.primaryColor),
     startingAt: text(value.startingAt, fallback.startingAt),
+    featured: bool(value.featured, fallback.featured),
     visible: bool(value.visible, fallback.visible),
     comingSoon: bool(value.comingSoon, fallback.comingSoon),
     comingSoonMessage: text(value.comingSoonMessage, fallback.comingSoonMessage),
     categoryId: text(value.categoryId, mappings.pages[slug] ?? mappings.pages[fallback.slug] ?? fallback.categoryId),
+  }
+}
+
+function normalizeHomeBoxSection(
+  value: Partial<CmsHomeGameSection> | Partial<CmsHomeServiceSection> | undefined,
+  fallback: CmsHomeGameSection | CmsHomeServiceSection
+) {
+  return {
+    eyebrow: text(value?.eyebrow, fallback.eyebrow),
+    title: text(value?.title, fallback.title),
+    description: text(value?.description, fallback.description),
+    buttonText: text(value?.buttonText, fallback.buttonText),
+    maxItems: positiveInteger(value?.maxItems, fallback.maxItems),
+  }
+}
+
+function normalizeLocation(value: Partial<CmsLocation>, fallback: CmsLocation): CmsLocation {
+  const name = text(value.name, fallback.name)
+  const id = slugifySiteId(text(value.id, fallback.id) || name) || fallback.id
+  const status =
+    value.status === "active" || value.status === "coming-soon" || value.status === "maintenance"
+      ? value.status
+      : fallback.status
+
+  return {
+    id,
+    name,
+    region: text(value.region, fallback.region),
+    group: text(value.group, fallback.group),
+    flag: text(value.flag, fallback.flag),
+    ping: text(value.ping, fallback.ping),
+    status,
+    lat: numberValue(value.lat, fallback.lat),
+    lng: numberValue(value.lng, fallback.lng),
+    visible: bool(value.visible, fallback.visible),
+  }
+}
+
+function normalizeLocations(value: unknown): CmsLocation[] {
+  const rawLocations = Array.isArray(value) ? value : defaultLocations
+  return rawLocations.map((location, index) =>
+    normalizeLocation(location as Partial<CmsLocation>, defaultLocations[index] ?? defaultLocations[0])
+  )
+}
+
+function normalizeSeasonEffect(value: Partial<CmsSeasonEffect> | undefined): CmsSeasonEffect {
+  const type = value?.type === "winter" || value?.type === "christmas" || value?.type === "none" ? value.type : "christmas"
+
+  return {
+    enabled: bool(value?.enabled, true),
+    type,
+    snowflakeCount: Math.min(120, Math.max(0, positiveInteger(value?.snowflakeCount, 30))),
   }
 }
 
@@ -332,7 +510,7 @@ export function defaultFooter(): CmsFooter {
   return {
     logo: "/meta/Logo.png",
     description: "Premium hosting infrastructure for game servers, virtual servers, dedicated machines, and web projects.",
-    credit: "Made by Anthony S",
+    credit: "Priyx",
     copyright: "SnapGrids. All rights reserved.",
     quickLinks: [
       { label: "Client Area", href: "#" },
@@ -406,6 +584,7 @@ export function sanitizeSiteContent(value: Partial<SiteContent> | undefined, map
         banner: "/meta/Banner.png",
         primaryColor: "#3b82f6",
         startingAt: "\u20b90/mo",
+        featured: false,
         visible: true,
         comingSoon: false,
         comingSoonMessage: "",
@@ -414,16 +593,28 @@ export function sanitizeSiteContent(value: Partial<SiteContent> | undefined, map
     })
   ).map((service) => normalizeServicePage(service, service, mappings))
 
-  const homeGameSection: CmsHomeGameSection = {
+  const homeGameSection = normalizeHomeBoxSection(value?.homeGameSection, {
     eyebrow: text(value?.homeGameSection?.eyebrow, "Popular Game Hosting"),
-    title: text(value?.homeGameSection?.title, "Start With The Game You Run"),
-    description: text(value?.homeGameSection?.description, ""),
-    buttonText: text(value?.homeGameSection?.buttonText, "View All Games"),
-    maxItems: positiveInteger(value?.homeGameSection?.maxItems, 5),
-  }
+    title: "Start With The Game You Run",
+    description: "",
+    buttonText: "View All Games",
+    maxItems: 5,
+  })
+
+  const homeServiceSection = normalizeHomeBoxSection(value?.homeServiceSection, {
+    eyebrow: "Other Hosting",
+    title: "Hosting For Every Workload",
+    description: "Launch Discord bots, VPS servers, websites, and dedicated machines from one hosting platform.",
+    buttonText: "View All Hosting",
+    maxItems: 4,
+  })
 
   return {
+    hero: normalizeHero(value?.hero),
     homeGameSection,
+    homeServiceSection,
+    seasonEffect: normalizeSeasonEffect(value?.seasonEffect),
+    locations: normalizeLocations(value?.locations),
     navigation: normalizeNavigation(value?.navigation),
     games: normalizedGames,
     services: normalizedServices,

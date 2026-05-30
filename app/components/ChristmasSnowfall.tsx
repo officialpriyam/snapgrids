@@ -1,17 +1,19 @@
 "use client"
 
 import Snowfall from 'react-snowfall'
-import uiConfig from '../config/sections/ui.json'
+import { useSiteContent } from '../hooks/useSiteContent'
 
 export default function ChristmasSnowfall() {
-  if (!uiConfig.christmasTheme.enabled) {
+  const { seasonEffect } = useSiteContent()
+
+  if (!seasonEffect.enabled || seasonEffect.type === "none") {
     return null
   }
 
   return (
     <Snowfall
-      color="#fff"
-      snowflakeCount={30}
+      color={seasonEffect.type === "christmas" ? "#fff" : "#dbeafe"}
+      snowflakeCount={seasonEffect.snowflakeCount}
       style={{
         position: 'fixed',
         width: '100vw',

@@ -34,7 +34,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import navigationConfig from '../config/sections/navigation.json';
 import heroConfig from '../config/sections/hero.json';
 import type { HeroConfig } from '../types/hero';
-import uiConfig from '../config/sections/ui.json';
 
 const defaultConfig = navigationConfig as NavigationConfig;
 const heroSettings = heroConfig as HeroConfig;
@@ -145,6 +144,7 @@ const Navbar: React.FC = () => {
   const { t } = useLanguage();
   const site = useSiteContent();
   const config = site.navigation ?? defaultConfig;
+  const showChristmasDecor = site.seasonEffect.enabled && site.seasonEffect.type === "christmas";
 
   useEffect(() => {
     setShowBanner(config.banner.show)
@@ -187,8 +187,12 @@ const Navbar: React.FC = () => {
     }));
   }, []);
   const filteredGames = useMemo(
-    () => site.games.filter((game) => game.visible).slice(0, 6),
+    () => site.games.filter((game) => game.visible),
     [site.games]
+  );
+  const gameDropdownGames = useMemo(
+    () => filteredGames.slice(0, 6),
+    [filteredGames]
   );
 
   const handleCopyCode = useCallback(() => {
@@ -244,9 +248,9 @@ const Navbar: React.FC = () => {
   const renderDropdown = useCallback((item: NavigationItem) => {
     if (item.dropdownType === 'games') {
       return (
-        <div className="absolute top-full left-0 rounded-b-xl -mt-0.5 w-[300px] sm:w-[400px] md:w-[500px] bg-white dark:bg-black/90 backdrop-blur-sm border-t-2 border-top-nav -mt-[2px]  shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-200 z-10 p-3 sm:p-4">
+        <div className="absolute top-full left-0 max-h-[72vh] overflow-y-auto rounded-b-xl -mt-0.5 w-[300px] sm:w-[400px] md:w-[560px] bg-white dark:bg-black/90 backdrop-blur-sm border-t-2 border-top-nav -mt-[2px] shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-200 z-10 p-3 sm:p-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3  sm:gap-4">
-            {filteredGames.map((game: any) => (
+            {gameDropdownGames.map((game: any) => (
               <Link
                 key={game.slug}
                 href={getGameHref(game.slug)}
@@ -274,6 +278,14 @@ const Navbar: React.FC = () => {
               </Link>
             ))}
           </div>
+          <Link
+            href="/games"
+            className="mt-4 flex items-center justify-center gap-2 rounded-md border border-secondary px-4 py-2 text-sm font-semibold text-gray-900 transition-colors hover:bg-blue-500 hover:text-white dark:text-white"
+            prefetch={true}
+          >
+            View All Games
+            <ChevronRight className="h-4 w-4" />
+          </Link>
         </div>
       );
     }
@@ -336,7 +348,7 @@ const Navbar: React.FC = () => {
     }
 
     return null;
-  }, [filteredGames, t]);
+  }, [gameDropdownGames, t]);
 
   const getTranslatedNavName = useCallback((itemName: string) => {
     const navKey = itemName.toLowerCase().replace(/\s+/g, '');
@@ -345,6 +357,7 @@ const Navbar: React.FC = () => {
       case 'cloud': return t('navbar.cloud');
       case 'dedicated': return t('navbar.dedicated');
       case 'discordbot': return t('navbar.discord');
+      case 'otherhosting': return 'Other Hosting';
       case 'webhosting': return t('navbar.webhosting');
       case 'legal': return t('navbar.legal');
       default: return itemName;
@@ -443,7 +456,7 @@ const Navbar: React.FC = () => {
               >
                 <div className="max-h-[35vh] overflow-y-auto">
                   <div className="grid grid-cols-2 gap-2">
-                    {filteredGames.map((game: any) => (
+                    {gameDropdownGames.map((game: any) => (
                       <Link
                         key={game.slug}
                         href={getGameHref(game.slug)}
@@ -468,6 +481,15 @@ const Navbar: React.FC = () => {
                       </Link>
                     ))}
                   </div>
+                  <Link
+                    href="/games"
+                    className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700 dark:border-gray-700 dark:text-gray-200"
+                    onClick={closeMobileMenu}
+                    prefetch={true}
+                  >
+                    View All Games
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
                 </div>
               </motion.div>
             )}
@@ -565,7 +587,7 @@ const Navbar: React.FC = () => {
         <ChevronRight className="w-4 h-4" />
       </Link>
     );
-  }, [pathname, closeMobileMenu, filteredGames, mobileDropdownStates, toggleMobileDropdown, getTranslatedNavName, t]);
+  }, [pathname, closeMobileMenu, gameDropdownGames, mobileDropdownStates, toggleMobileDropdown, getTranslatedNavName, t]);
 
   return (
     <div style={{ overflowX: 'hidden', position: 'relative' }}>
@@ -728,9 +750,9 @@ const Navbar: React.FC = () => {
       )}
 
 
-      <nav className={`fixed -mt-1 left-0 right-0 z-50 bg-white/90 dark:bg-[#10121b]/20 backdrop-blur-xs border-b border-gray-200/60 dark:border-[#272a32]/10 transition-all duration-300 ${isScrolled ? 'top-0' : (showBanner ? 'top-[52px]' : 'top-0')}`}>
-        <div className="px-4 sm:px-0 max-w-7xl mx-auto">
-          <div className="flex items-center">
+      <nav className={`fixed left-0 right-0 z-50 bg-transparent px-3 transition-all duration-300 ${isScrolled ? 'top-3' : (showBanner && config.banner.show ? 'top-[64px]' : 'top-3')}`}>
+        <div className="mx-auto max-w-7xl">
+          <div className="flex items-center rounded-2xl border border-gray-200/70 bg-white/85 px-3 shadow-xl shadow-black/10 backdrop-blur-xl dark:border-white/10 dark:bg-[#10121b]/75">
 
             <div className="flex-shrink-0 flex items-center mr-6">
               <Link
@@ -792,7 +814,7 @@ const Navbar: React.FC = () => {
                   {config.clientSpace.icon && getIcon(config.clientSpace.icon) && React.createElement(getIcon(config.clientSpace.icon), { className: "w-4 h-4" })}
                   <span>{t('navbar.clientSpace')}</span>
                 </Link>
-                {uiConfig.christmasTheme.enabled && (
+                {showChristmasDecor && (
                   <>
                     <Image
                       src="/christmas/button-deco-up.png"
@@ -844,7 +866,7 @@ const Navbar: React.FC = () => {
           {isMobileMenuOpen && (
             <motion.div
               id="mobile-menu"
-              className="md:hidden bg-white dark:bg-[#10121b] border-t border-gray-200 dark:border-gray-700 overflow-hidden"
+              className="mx-auto mt-2 max-w-7xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-white/10 dark:bg-[#10121b] md:hidden"
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
@@ -964,7 +986,7 @@ const Navbar: React.FC = () => {
                       {config.clientSpace.icon && getIcon(config.clientSpace.icon) && React.createElement(getIcon(config.clientSpace.icon), { className: "w-4 h-4" })}
                       <span>{t('navbar.clientSpace')}</span>
                     </Link>
-                    {uiConfig.christmasTheme.enabled && (
+                    {showChristmasDecor && (
                       <>
                         <Image
                           src="/christmas/button-deco-up.png"

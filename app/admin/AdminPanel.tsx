@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Lock,
   LogOut,
+  MapPin,
   Menu,
   Pencil,
   Plus,
@@ -18,10 +19,11 @@ import {
   Save,
   Server,
   ShieldCheck,
+  Snowflake,
   Trash2,
 } from "lucide-react"
 import type { AdminMappings, PaymenterCategoryOption, PaymenterPlanCard } from "../types/paymenter"
-import type { CmsFooter, CmsFooterContact, CmsFooterLink, CmsGamePage, CmsServicePage, SiteContent } from "../types/site"
+import type { CmsFooter, CmsFooterContact, CmsFooterLink, CmsGamePage, CmsLocation, CmsServicePage, SiteContent } from "../types/site"
 import type { LegalPageConfig, LegalSection } from "../types/legal"
 import type { DropdownItem, NavigationConfig, NavigationItem, SocialLink } from "../types/navigation"
 import { slugifySiteId } from "../lib/site-content"
@@ -45,6 +47,9 @@ export type InitialEditor =
   | { type: "legal"; kind: LegalPageKey }
   | { type: "footer" }
   | { type: "navbar" }
+  | { type: "locations" }
+  | { type: "hero" }
+  | { type: "season" }
 
 type ActiveEditor =
   | { type: "homepage" }
@@ -53,6 +58,9 @@ type ActiveEditor =
   | { type: "legal"; kind: LegalPageKey }
   | { type: "footer" }
   | { type: "navbar" }
+  | { type: "locations" }
+  | { type: "hero" }
+  | { type: "season" }
   | null
 
 const emptyMappings: AdminMappings = {
@@ -126,7 +134,14 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
       return
     }
 
-    if (initialEditor.type === "homepage" || initialEditor.type === "footer" || initialEditor.type === "navbar") {
+    if (
+      initialEditor.type === "homepage" ||
+      initialEditor.type === "footer" ||
+      initialEditor.type === "navbar" ||
+      initialEditor.type === "locations" ||
+      initialEditor.type === "hero" ||
+      initialEditor.type === "season"
+    ) {
       setActiveEditor({ type: initialEditor.type })
       setAppliedInitialEditor(key)
       return
@@ -438,6 +453,7 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
             banner: "/meta/Banner.png",
             primaryColor: "#3b82f6",
             startingAt: "\u20b90/mo",
+            featured: false,
             visible: true,
             comingSoon: false,
             comingSoonMessage: "",
@@ -467,6 +483,125 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
     updateSite((site) => ({
       ...site,
       services: site.services.filter((_, itemIndex) => itemIndex !== index),
+    }))
+  }
+
+  function updateLocation(index: number, patch: Partial<CmsLocation>) {
+    updateSite((site) => ({
+      ...site,
+      locations: site.locations.map((location, itemIndex) => {
+        if (itemIndex !== index) {
+          return location
+        }
+
+        const next = { ...location, ...patch }
+        if (patch.name && !patch.id) {
+          next.id = slugifySiteId(patch.name) || location.id
+        }
+        if (patch.id) {
+          next.id = slugifySiteId(patch.id) || location.id
+        }
+        return next
+      }),
+    }))
+  }
+
+  function addLocation() {
+    updateSite((site) => {
+      const number = site.locations.length + 1
+      const id = `new-location-${number}`
+      return {
+        ...site,
+        locations: [
+          ...site.locations,
+          {
+            id,
+            name: `New Location ${number}`,
+            region: "Region",
+            group: "Global",
+            flag: "/flags/india.png",
+            ping: "low latency",
+            status: "active",
+            lat: 20.5937,
+            lng: 78.9629,
+            visible: true,
+          },
+        ],
+      }
+    })
+  }
+
+  function removeLocation(index: number) {
+    updateSite((site) => ({
+      ...site,
+      locations: site.locations.filter((_, itemIndex) => itemIndex !== index),
+    }))
+  }
+
+  function updateHero(patch: Partial<SiteContent["hero"]>) {
+    updateSite((site) => ({
+      ...site,
+      hero: {
+        ...site.hero,
+        ...patch,
+      },
+    }))
+  }
+
+  function updateHeroSlide(index: number, patch: Partial<SiteContent["hero"]["slides"][number]>) {
+    updateSite((site) => ({
+      ...site,
+      hero: {
+        ...site.hero,
+        slides: site.hero.slides.map((slide, itemIndex) => {
+          if (itemIndex !== index) {
+            return slide
+          }
+          const next = { ...slide, ...patch }
+          if (patch.name && !patch.id) {
+            next.id = slugifySiteId(patch.name) || slide.id
+          }
+          if (patch.id) {
+            next.id = slugifySiteId(patch.id) || slide.id
+          }
+          return next
+        }),
+      },
+    }))
+  }
+
+  function addHeroSlide() {
+    updateSite((site) => {
+      const number = site.hero.slides.length + 1
+      const id = `hero-slide-${number}`
+      return {
+        ...site,
+        hero: {
+          ...site.hero,
+          slides: [
+            ...site.hero.slides,
+            {
+              id,
+              name: `Hero Slide ${number}`,
+              displayName: `Hosting ${number}`,
+              banner: "/meta/Banner.png",
+              color: "#3b82f6",
+              showSuffix: true,
+              visible: true,
+            },
+          ],
+        },
+      }
+    })
+  }
+
+  function removeHeroSlide(index: number) {
+    updateSite((site) => ({
+      ...site,
+      hero: {
+        ...site.hero,
+        slides: site.hero.slides.filter((_, itemIndex) => itemIndex !== index),
+      },
     }))
   }
 
@@ -755,7 +890,7 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
     }
 
     if (activeEditor.type === "homepage") {
-      return "Edit Homepage Game Boxes"
+      return "Edit Homepage Boxes"
     }
     if (activeEditor.type === "game") {
       return `Edit ${settings.site.games[activeEditor.index]?.name ?? "Game Page"}`
@@ -767,7 +902,16 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
       return activeEditor.kind === "termsOfService" ? "Edit Terms of Service" : "Edit Privacy Policy"
     }
     if (activeEditor.type === "navbar") {
-      return "Edit Navbar"
+      return "Edit Navbar & Announcement"
+    }
+    if (activeEditor.type === "locations") {
+      return "Edit Locations"
+    }
+    if (activeEditor.type === "hero") {
+      return "Edit Homepage Hero"
+    }
+    if (activeEditor.type === "season") {
+      return "Edit Seasonal Effects"
     }
     return "Edit Footer"
   }
@@ -779,12 +923,20 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
 
     if (activeEditor.type === "homepage") {
       return (
-        <HomepageGameBoxesEditor
-          settings={settings}
-          updateSite={updateSite}
-          updateGame={updateGame}
-          gameEditHref={(game) => `/admin/${game.slug}/edit`}
-        />
+        <div className="space-y-6">
+          <HomepageGameBoxesEditor
+            settings={settings}
+            updateSite={updateSite}
+            updateGame={updateGame}
+            gameEditHref={(game) => `/admin/${game.slug}/edit`}
+          />
+          <HomepageServiceBoxesEditor
+            settings={settings}
+            updateSite={updateSite}
+            updateService={updateService}
+            serviceEditHref={(service) => `/admin/hosting/${service.slug}/edit`}
+          />
+        </div>
       )
     }
 
@@ -845,6 +997,43 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
       )
     }
 
+    if (activeEditor.type === "locations") {
+      return (
+        <LocationsEditor
+          locations={settings.site.locations}
+          onChange={updateLocation}
+          onAdd={addLocation}
+          onRemove={removeLocation}
+        />
+      )
+    }
+
+    if (activeEditor.type === "hero") {
+      return (
+        <HeroEditor
+          hero={settings.site.hero}
+          onChange={updateHero}
+          onSlideChange={updateHeroSlide}
+          onAddSlide={addHeroSlide}
+          onRemoveSlide={removeHeroSlide}
+        />
+      )
+    }
+
+    if (activeEditor.type === "season") {
+      return (
+        <SeasonEditor
+          seasonEffect={settings.site.seasonEffect}
+          onChange={(patch) =>
+            updateSite((site) => ({
+              ...site,
+              seasonEffect: { ...site.seasonEffect, ...patch },
+            }))
+          }
+        />
+      )
+    }
+
     return (
       <FooterEditor
         footer={settings.site.footer}
@@ -871,9 +1060,13 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
         ? Server
         : activeEditor?.type === "legal"
           ? FileText
-          : activeEditor?.type === "navbar"
+        : activeEditor?.type === "navbar"
             ? Menu
-            : LayoutGrid
+            : activeEditor?.type === "locations"
+              ? MapPin
+              : activeEditor?.type === "season"
+                ? Snowflake
+                : LayoutGrid
 
   if (authLoading) {
     return (
@@ -1124,6 +1317,15 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
           />
         </Panel>
 
+        <Panel title="Homepage Other Hosting Boxes" icon={Server} className="mb-6">
+          <HomepageServiceBoxesEditor
+            settings={settings}
+            updateSite={updateSite}
+            updateService={updateService}
+            serviceEditHref={(service) => `/admin/hosting/${service.slug}/edit`}
+          />
+        </Panel>
+
         {activeEditor && (
           <div ref={activeEditorRef}>
             <Panel title={activeEditorTitle()} icon={activeEditorIcon} className="mb-6">
@@ -1227,6 +1429,9 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
                   <span className="rounded-md border border-secondary px-2 py-1">{service.visible ? "Visible" : "Hidden"}</span>
                   <span className="rounded-md border border-secondary px-2 py-1">
+                    {service.featured ? "Homepage" : "Not on homepage"}
+                  </span>
+                  <span className="rounded-md border border-secondary px-2 py-1">
                     {service.comingSoon ? "Coming soon" : "Live page"}
                   </span>
                   <span className="rounded-md border border-secondary px-2 py-1">{service.label}</span>
@@ -1254,6 +1459,67 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
           </div>
         </Panel>
 
+        <Panel title="Homepage Hero Slides" icon={LayoutGrid} className="mb-6">
+          <div className="rounded-md border border-secondary p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="font-semibold">Hero Content</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {settings.site.hero.slides.length} slides, {settings.site.hero.cycleInterval}ms rotation
+                </p>
+              </div>
+              <Link
+                href="/admin/hero/edit"
+                className="flex items-center justify-center gap-2 rounded-md border border-secondary px-4 py-2 text-sm"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit Hero
+              </Link>
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="Locations" icon={MapPin} className="mb-6">
+          <div className="rounded-md border border-secondary p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="font-semibold">Global Presence Section</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {settings.site.locations.filter((location) => location.visible).length} visible locations
+                </p>
+              </div>
+              <Link
+                href="/admin/location"
+                className="flex items-center justify-center gap-2 rounded-md border border-secondary px-4 py-2 text-sm"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit Locations
+              </Link>
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="Seasonal Effects" icon={Snowflake} className="mb-6">
+          <div className="rounded-md border border-secondary p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="font-semibold">Winter / Christmas Effects</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {settings.site.seasonEffect.enabled ? settings.site.seasonEffect.type : "off"} effect,{" "}
+                  {settings.site.seasonEffect.snowflakeCount} particles
+                </p>
+              </div>
+              <Link
+                href="/admin/season/edit"
+                className="flex items-center justify-center gap-2 rounded-md border border-secondary px-4 py-2 text-sm"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit Effects
+              </Link>
+            </div>
+          </div>
+        </Panel>
+
         <Panel title="Legal Pages" icon={FileText} className="mb-6">
           <div className="grid gap-3 md:grid-cols-2">
             {[
@@ -1276,14 +1542,15 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
           </div>
         </Panel>
 
-        <Panel title="Navbar Editor" icon={Menu} className="mb-6">
+        <Panel title="Navbar & Announcement Editor" icon={Menu} className="mb-6">
           <div className="rounded-md border border-secondary p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="font-semibold">Navigation</h3>
+                <h3 className="font-semibold">Navigation & announcement offer</h3>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   {settings.site.navigation.mainNavigation.length} menu items,{" "}
-                  {settings.site.navigation.socialLinks.length} social links
+                  {settings.site.navigation.socialLinks.length} social links, banner{" "}
+                  {settings.site.navigation.banner.show ? "on" : "off"}
                 </p>
               </div>
               <Link
@@ -1291,7 +1558,7 @@ export default function AdminPanel({ initialEditor }: { initialEditor?: InitialE
                 className="flex items-center justify-center gap-2 rounded-md border border-secondary px-4 py-2 text-sm"
               >
                 <Pencil className="h-4 w-4" />
-                Edit Navbar
+                Edit Navbar / Offer
               </Link>
             </div>
           </div>
@@ -1518,6 +1785,134 @@ function HomepageGameBoxesEditor({
   )
 }
 
+function HomepageServiceBoxesEditor({
+  settings,
+  updateSite,
+  updateService,
+  serviceEditHref,
+}: {
+  settings: AdminSettings
+  updateSite: (updater: (site: SiteContent) => SiteContent) => void
+  updateService: (index: number, patch: Partial<CmsServicePage>) => void
+  serviceEditHref: (service: CmsServicePage) => string
+}) {
+  const featuredCount = settings.site.services.filter((service) => service.featured && service.visible).length
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <Field label="Eyebrow">
+          <input
+            value={settings.site.homeServiceSection.eyebrow}
+            onChange={(event) =>
+              updateSite((site) => ({
+                ...site,
+                homeServiceSection: { ...site.homeServiceSection, eyebrow: event.target.value },
+              }))
+            }
+            className="admin-input"
+          />
+        </Field>
+        <Field label="Title">
+          <input
+            value={settings.site.homeServiceSection.title}
+            onChange={(event) =>
+              updateSite((site) => ({
+                ...site,
+                homeServiceSection: { ...site.homeServiceSection, title: event.target.value },
+              }))
+            }
+            className="admin-input"
+          />
+        </Field>
+        <Field label="Button text">
+          <input
+            value={settings.site.homeServiceSection.buttonText}
+            onChange={(event) =>
+              updateSite((site) => ({
+                ...site,
+                homeServiceSection: { ...site.homeServiceSection, buttonText: event.target.value },
+              }))
+            }
+            className="admin-input"
+          />
+        </Field>
+        <Field label="Max boxes">
+          <input
+            type="number"
+            min={1}
+            value={settings.site.homeServiceSection.maxItems}
+            onChange={(event) =>
+              updateSite((site) => ({
+                ...site,
+                homeServiceSection: { ...site.homeServiceSection, maxItems: Number(event.target.value) },
+              }))
+            }
+            className="admin-input"
+          />
+        </Field>
+        <Field label="Description">
+          <input
+            value={settings.site.homeServiceSection.description}
+            onChange={(event) =>
+              updateSite((site) => ({
+                ...site,
+                homeServiceSection: { ...site.homeServiceSection, description: event.target.value },
+              }))
+            }
+            className="admin-input"
+          />
+        </Field>
+      </div>
+
+      <div className="rounded-md border border-secondary bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-900/40 dark:text-gray-300">
+        {featuredCount > 0
+          ? `${featuredCount} visible hosting boxes are selected for the homepage.`
+          : "No featured hosting boxes are selected, so the homepage will use the first visible hosting pages."}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {settings.site.services.map((service, index) => (
+          <div key={`${service.slug}-${index}`} className="overflow-hidden rounded-md border border-secondary bg-white dark:bg-gray-950/40">
+            <div className="relative h-28 bg-gray-100 dark:bg-gray-900">
+              <img src={service.banner || "/meta/Banner.png"} alt="" className="h-full w-full object-cover" />
+              <div className="absolute inset-0 bg-black/35" />
+              <div className="absolute left-3 top-3 h-12 w-12 overflow-hidden rounded-md border border-white/20 bg-black/50">
+                <img src={service.icon || "/meta/Logo.png"} alt="" className="h-full w-full object-cover" />
+              </div>
+              {service.comingSoon && (
+                <span className="absolute right-3 top-3 rounded-md bg-yellow-400 px-2 py-1 text-xs font-semibold text-black">
+                  Coming soon
+                </span>
+              )}
+            </div>
+            <div className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="truncate font-semibold">{service.name}</h3>
+                  <p className="truncate text-xs text-gray-500">{service.route}</p>
+                </div>
+                <p className="shrink-0 text-sm font-semibold text-emerald-500">{service.startingAt}</p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <ToggleField label="Show box" checked={service.featured} onChange={(value) => updateService(index, { featured: value })} />
+                <ToggleField label="Visible" checked={service.visible} onChange={(value) => updateService(index, { visible: value })} />
+              </div>
+              <Link
+                href={serviceEditHref(service)}
+                className="mt-4 flex items-center justify-center gap-2 rounded-md border border-secondary px-3 py-2 text-sm"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit Page
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function GameEditor({
   game,
   index,
@@ -1617,6 +2012,9 @@ function ServiceEditor({
         <ToggleField label="Visible" checked={service.visible} onChange={(value) => onChange(index, { visible: value })} />
       </div>
       <div className="pt-6">
+        <ToggleField label="Homepage box" checked={service.featured} onChange={(value) => onChange(index, { featured: value })} />
+      </div>
+      <div className="pt-6">
         <ToggleField label="Coming soon" checked={service.comingSoon} onChange={(value) => onChange(index, { comingSoon: value })} />
       </div>
       <Field label="Coming soon message">
@@ -1692,6 +2090,215 @@ function LegalEditor({
         <Plus className="h-4 w-4" />
         Add Section
       </button>
+    </div>
+  )
+}
+
+function LocationsEditor({
+  locations,
+  onChange,
+  onAdd,
+  onRemove,
+}: {
+  locations: CmsLocation[]
+  onChange: (index: number, patch: Partial<CmsLocation>) => void
+  onAdd: () => void
+  onRemove: (index: number) => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <button type="button" onClick={onAdd} className="flex items-center gap-2 rounded-md border border-secondary px-3 py-2 text-sm">
+          <Plus className="h-4 w-4" />
+          Add Location
+        </button>
+      </div>
+      <div className="space-y-4">
+        {locations.map((location, index) => (
+          <div key={`${location.id}-${index}`} className="rounded-md border border-secondary p-4">
+            <div className="mb-3 flex justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <img src={location.flag || "/flags/india.png"} alt="" className="h-8 w-8 rounded object-cover" />
+                <div>
+                  <h3 className="font-semibold">{location.name}</h3>
+                  <p className="text-xs text-gray-500">{location.group} / {location.region}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => onRemove(index)} className="text-red-500" aria-label={`Remove ${location.name}`}>
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <Field label="Name">
+                <input value={location.name} onChange={(event) => onChange(index, { name: event.target.value })} className="admin-input" />
+              </Field>
+              <Field label="ID">
+                <input value={location.id} onChange={(event) => onChange(index, { id: event.target.value })} className="admin-input" />
+              </Field>
+              <Field label="Flag URL">
+                <input value={location.flag} onChange={(event) => onChange(index, { flag: event.target.value })} className="admin-input" />
+              </Field>
+              <Field label="Group">
+                <input value={location.group} onChange={(event) => onChange(index, { group: event.target.value })} className="admin-input" />
+              </Field>
+              <Field label="Region">
+                <input value={location.region} onChange={(event) => onChange(index, { region: event.target.value })} className="admin-input" />
+              </Field>
+              <Field label="Ping / note">
+                <input value={location.ping} onChange={(event) => onChange(index, { ping: event.target.value })} className="admin-input" />
+              </Field>
+              <Field label="Latitude">
+                <input type="number" value={location.lat} onChange={(event) => onChange(index, { lat: Number(event.target.value) })} className="admin-input" />
+              </Field>
+              <Field label="Longitude">
+                <input type="number" value={location.lng} onChange={(event) => onChange(index, { lng: Number(event.target.value) })} className="admin-input" />
+              </Field>
+              <Field label="Status">
+                <select value={location.status} onChange={(event) => onChange(index, { status: event.target.value as CmsLocation["status"] })} className="admin-input">
+                  <option value="active">Active</option>
+                  <option value="coming-soon">Coming soon</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              </Field>
+              <div className="pt-7">
+                <ToggleField label="Visible" checked={location.visible} onChange={(value) => onChange(index, { visible: value })} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HeroEditor({
+  hero,
+  onChange,
+  onSlideChange,
+  onAddSlide,
+  onRemoveSlide,
+}: {
+  hero: SiteContent["hero"]
+  onChange: (patch: Partial<SiteContent["hero"]>) => void
+  onSlideChange: (index: number, patch: Partial<SiteContent["hero"]["slides"][number]>) => void
+  onAddSlide: () => void
+  onRemoveSlide: (index: number) => void
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-md border border-secondary p-4">
+        <h3 className="mb-4 font-semibold">Hero Copy & Actions</h3>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Title prefix">
+            <input value={hero.titlePrefix} onChange={(event) => onChange({ titlePrefix: event.target.value })} className="admin-input" />
+          </Field>
+          <Field label="Title suffix">
+            <input value={hero.titleSuffix} onChange={(event) => onChange({ titleSuffix: event.target.value })} className="admin-input" />
+          </Field>
+          <Field label="Primary button text">
+            <input value={hero.primaryButtonText} onChange={(event) => onChange({ primaryButtonText: event.target.value })} className="admin-input" />
+          </Field>
+          <Field label="Primary button URL">
+            <input value={hero.primaryButtonHref} onChange={(event) => onChange({ primaryButtonHref: event.target.value })} className="admin-input" />
+          </Field>
+          <Field label="Secondary button text">
+            <input value={hero.secondaryButtonText} onChange={(event) => onChange({ secondaryButtonText: event.target.value })} className="admin-input" />
+          </Field>
+          <Field label="Secondary button URL">
+            <input value={hero.secondaryButtonHref} onChange={(event) => onChange({ secondaryButtonHref: event.target.value })} className="admin-input" />
+          </Field>
+          <Field label="Helper text">
+            <input value={hero.helperText} onChange={(event) => onChange({ helperText: event.target.value })} className="admin-input" />
+          </Field>
+          <Field label="Slide interval (ms)">
+            <input type="number" min={2000} value={hero.cycleInterval} onChange={(event) => onChange({ cycleInterval: Number(event.target.value) })} className="admin-input" />
+          </Field>
+          <div className="md:col-span-2">
+            <Field label="Description">
+              <textarea value={hero.description} onChange={(event) => onChange({ description: event.target.value })} className="admin-textarea" />
+            </Field>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-secondary p-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h3 className="font-semibold">Hero Slides</h3>
+          <button type="button" onClick={onAddSlide} className="flex items-center gap-2 rounded-md border border-secondary px-3 py-2 text-sm">
+            <Plus className="h-4 w-4" />
+            Add Slide
+          </button>
+        </div>
+        <div className="space-y-4">
+          {hero.slides.map((slide, index) => (
+            <div key={`${slide.id}-${index}`} className="rounded-md border border-secondary p-3">
+              <div className="mb-3 flex justify-between gap-3">
+                <div className="min-w-0">
+                  <h4 className="truncate font-semibold">{slide.displayName}</h4>
+                  <p className="truncate text-xs text-gray-500">{slide.banner}</p>
+                </div>
+                <button type="button" onClick={() => onRemoveSlide(index)} className="text-red-500" aria-label={`Remove ${slide.name}`}>
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <Field label="Name">
+                  <input value={slide.name} onChange={(event) => onSlideChange(index, { name: event.target.value })} className="admin-input" />
+                </Field>
+                <Field label="Display name">
+                  <input value={slide.displayName} onChange={(event) => onSlideChange(index, { displayName: event.target.value })} className="admin-input" />
+                </Field>
+                <Field label="Slide ID">
+                  <input value={slide.id} onChange={(event) => onSlideChange(index, { id: event.target.value })} className="admin-input" />
+                </Field>
+                <Field label="Background image URL">
+                  <input value={slide.banner} onChange={(event) => onSlideChange(index, { banner: event.target.value })} className="admin-input" />
+                </Field>
+                <Field label="Theme color">
+                  <input value={slide.color} onChange={(event) => onSlideChange(index, { color: event.target.value })} className="admin-input" />
+                </Field>
+                <div className="flex items-center gap-4 pt-7">
+                  <ToggleField label="Visible" checked={slide.visible} onChange={(value) => onSlideChange(index, { visible: value })} />
+                  <ToggleField label="Show title suffix" checked={slide.showSuffix} onChange={(value) => onSlideChange(index, { showSuffix: value })} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SeasonEditor({
+  seasonEffect,
+  onChange,
+}: {
+  seasonEffect: SiteContent["seasonEffect"]
+  onChange: (patch: Partial<SiteContent["seasonEffect"]>) => void
+}) {
+  return (
+    <div className="grid gap-4 md:grid-cols-3">
+      <div className="pt-7">
+        <ToggleField label="Enable seasonal effect" checked={seasonEffect.enabled} onChange={(value) => onChange({ enabled: value })} />
+      </div>
+      <Field label="Effect">
+        <select value={seasonEffect.type} onChange={(event) => onChange({ type: event.target.value as SiteContent["seasonEffect"]["type"] })} className="admin-input">
+          <option value="none">None</option>
+          <option value="winter">Winter</option>
+          <option value="christmas">Christmas</option>
+        </select>
+      </Field>
+      <Field label="Snowflake count">
+        <input
+          type="number"
+          min={0}
+          max={120}
+          value={seasonEffect.snowflakeCount}
+          onChange={(event) => onChange({ snowflakeCount: Number(event.target.value) })}
+          className="admin-input"
+        />
+      </Field>
     </div>
   )
 }
@@ -1847,6 +2454,27 @@ function NavbarEditor({
             <input
               value={navigation.banner.couponCode}
               onChange={(event) => onChange({ banner: { ...navigation.banner, couponCode: event.target.value } })}
+              className="admin-input"
+            />
+          </Field>
+          <div className="pt-7">
+            <ToggleField
+              label="Use theme color"
+              checked={Boolean(navigation.banner.useThemeColor)}
+              onChange={(value) => onChange({ banner: { ...navigation.banner, useThemeColor: value } })}
+            />
+          </div>
+          <Field label="Background class">
+            <input
+              value={navigation.banner.backgroundColor}
+              onChange={(event) => onChange({ banner: { ...navigation.banner, backgroundColor: event.target.value } })}
+              className="admin-input"
+            />
+          </Field>
+          <Field label="Fallback class">
+            <input
+              value={navigation.banner.fallbackColor}
+              onChange={(event) => onChange({ banner: { ...navigation.banner, fallbackColor: event.target.value } })}
               className="admin-input"
             />
           </Field>

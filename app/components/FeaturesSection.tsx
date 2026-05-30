@@ -15,7 +15,7 @@ import {
   Rocket
 } from "lucide-react"
 import { useLanguage } from "../contexts/LanguageContext"
-import uiConfig from "../config/sections/ui.json"
+import { useSiteContent } from "../hooks/useSiteContent"
 
 interface Feature {
   icon: React.ElementType;
@@ -25,6 +25,8 @@ interface Feature {
 
 export default function FeaturesSection() {
   const { t } = useLanguage()
+  const { seasonEffect } = useSiteContent()
+  const showChristmasDecor = seasonEffect.enabled && seasonEffect.type === "christmas"
 
   const features: Feature[] = [
     {
@@ -85,7 +87,7 @@ export default function FeaturesSection() {
             <Icon className="w-5 h-5 sm:w-6 sm:h-6 icon-primary" />
           </div>
         </div>
-        {uiConfig.christmasTheme.enabled && (
+        {showChristmasDecor && (
           <>
             <Image
               src="/christmas/leaf-up.png"

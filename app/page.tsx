@@ -4,6 +4,7 @@ import PanelShowcase from "./components/PanelShowcase"
 import LocationsSection from "./components/LocationsSection"
 import FAQSection from "./components/FAQSection"
 import HomeGameHostingSection from "./components/home/HomeGameHostingSection"
+import HomeOtherHostingSection from "./components/home/HomeOtherHostingSection"
 import Footer from "./components/Footer"
 import Navbar from "./components/Navbar"
 
@@ -17,6 +18,7 @@ export default function Home() {
         <FeaturesSection />
         <LocationsSection />
         <HomeGameHostingSection />
+        <HomeOtherHostingSection />
         <FAQSection />
         <PanelShowcase />
         <Footer />

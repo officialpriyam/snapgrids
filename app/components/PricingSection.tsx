@@ -8,8 +8,8 @@ import { CurrencySelector, useCurrency } from "./ui/CurrencySelector"
 import pricingConfig from "../config/sections/pricing.json"
 import type { PricingConfig } from "../types/pricing"
 import { useLanguage } from '../contexts/LanguageContext';
-import uiConfig from "../config/sections/ui.json"
 import { usePaymenterPlanMap } from "../hooks/usePaymenterPlans"
+import { useSiteContent } from "../hooks/useSiteContent"
 
 const config = pricingConfig as PricingConfig
 const homepagePaymenterKeys = ["gameServers", "vpsHosting", "dedicatedServers", "webHosting", "discord"]
@@ -27,6 +27,8 @@ export default function PricingSection() {
   const { t } = useLanguage();
   const { selectedCurrency, setSelectedCurrency, convertPrice } = useCurrency()
   const paymenterPlansByKey = usePaymenterPlanMap("homepage", homepagePaymenterKeys)
+  const { seasonEffect } = useSiteContent()
+  const showChristmasDecor = seasonEffect.enabled && seasonEffect.type === "christmas"
 
   return (
     <div className="bg-gray-50 dark:bg-[#0a0b0f] py-32 px-4 sm:px-6 lg:px-8 relative">
@@ -133,7 +135,7 @@ export default function PricingSection() {
                     <span className="w-full orbitron-font text-center">{t(plan.buttonTextKey)}</span>
                     <ChevronRight className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1" />
                   </Link>
-                  {uiConfig.christmasTheme.enabled && (
+                  {showChristmasDecor && (
                     <>
                       <Image
                         src="/christmas/button-deco-up.png"

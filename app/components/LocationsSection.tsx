@@ -3,47 +3,10 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 import { memo, useMemo, useState, useEffect } from "react";
 import { Globe } from "@/components/ui/globe";
+import { useSiteContent } from "../hooks/useSiteContent";
+import type { CmsLocation } from "../types/site";
 
-const locations = [
-    {
-        name: "Amsterdam",
-        region: "EU West",
-        flag: "/flags/germany.png",
-        ping: "66ms",
-        status: "active",
-        lat: 52.3676,
-        lng: 4.9041,
-    },
-    {
-        name: "Chicago, IL",
-        region: "US Central",
-        flag: "/flags/usa.png",
-        ping: "157ms",
-        status: "active",
-        lat: 41.8781,
-        lng: -87.6298,
-    },
-    {
-        name: "Dallas, TX",
-        region: "US South",
-        flag: "/flags/usa.png",
-        ping: "169ms",
-        status: "active",
-        lat: 32.7767,
-        lng: -96.7970,
-    },
-    {
-        name: "Seattle, WA",
-        region: "US West",
-        flag: "/flags/usa.png",
-        ping: "197ms",
-        status: "active",
-        lat: 47.6062,
-        lng: -122.3321,
-    },
-];
-
-const LocationItem = memo(({ location, index }: { location: typeof locations[0], index: number }) => {
+const LocationItem = memo(({ location, index }: { location: CmsLocation, index: number }) => {
     const isActive = location.status === "active";
 
     return (
@@ -74,7 +37,7 @@ const LocationItem = memo(({ location, index }: { location: typeof locations[0],
                     </p>
                 </div>
             </div>
-
+            <div className={`h-2 w-2 rounded-full ${isActive ? "bg-emerald-500" : "bg-yellow-400"}`} />
         </motion.div>
     );
 });
@@ -86,6 +49,16 @@ LocationItem.displayName = 'LocationItem';
 
 export default function LocationsSection() {
     const [isDark, setIsDark] = useState(true);
+    const site = useSiteContent();
+    const locations = useMemo(() => site.locations.filter((location) => location.visible), [site.locations]);
+    const groupedLocations = useMemo(() => {
+        const groups = new Map<string, CmsLocation[]>();
+        for (const location of locations) {
+            const key = location.group || location.region || "Global";
+            groups.set(key, [...(groups.get(key) ?? []), location]);
+        }
+        return Array.from(groups.entries());
+    }, [locations]);
 
     useEffect(() => {
         const checkTheme = () => {
@@ -128,7 +101,7 @@ export default function LocationsSection() {
                 size: 0.08,
             })),
         onRender: () => { },
-    }), []);
+    }), [locations]);
 
     return (
         <div className="relative px-4 sm:px-6 lg:px-8 overflow-hidden">
@@ -178,34 +151,21 @@ export default function LocationsSection() {
                         </h2>
 
                         <p className="text-gray-600 dark:text-gray-300 text-xs sm:text-sm lg:text-base mb-4 sm:mb-6 lg:mb-8 leading-relaxed max-w-xl">
-                            Our rapidly expanding datacenter network spans across the Americas and Europe,
-                            delivering ultra-low latency from anywhere and lightning-fast connections wherever you play.
+                            Our network is built for low-latency game hosting, VPS hosting, web hosting, and bot hosting
+                            across India, Asia, Europe, the UK, and the Americas.
                         </p>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
-                            <div>
-                                <h3 className="icon-text-primary orbitron-font text-sm sm:text-base lg:text-lg mb-1.5 sm:mb-2 font-semibold">Europe</h3>
-                                <div className="space-y-0.5 sm:space-y-1">
-                                    {locations
-                                        .filter(loc => loc.region.includes("EU"))
-                                        .map((location, index) => (
-                                            <LocationItem key={location.name} location={location} index={index} />
-                                        ))
-                                    }
+                            {groupedLocations.slice(0, 4).map(([group, groupLocations], groupIndex) => (
+                                <div key={group}>
+                                    <h3 className="icon-text-primary orbitron-font text-sm sm:text-base lg:text-lg mb-1.5 sm:mb-2 font-semibold">{group}</h3>
+                                    <div className="space-y-0.5 sm:space-y-1">
+                                        {groupLocations.map((location, index) => (
+                                            <LocationItem key={location.id || location.name} location={location} index={index + groupIndex} />
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-
-                            <div>
-                                <h3 className="icon-text-primary orbitron-font text-sm sm:text-base lg:text-lg mb-1.5 sm:mb-2 font-semibold">Americas</h3>
-                                <div className="space-y-0.5 sm:space-y-1">
-                                    {locations
-                                        .filter(loc => loc.region.includes("US"))
-                                        .map((location, index) => (
-                                            <LocationItem key={location.name} location={location} index={index + 1} />
-                                        ))
-                                    }
-                                </div>
-                            </div>
+                            ))}
                         </div>
 
                     </motion.div>

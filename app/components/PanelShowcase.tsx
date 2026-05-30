@@ -13,7 +13,7 @@ import {
 } from "lucide-react"
 import showcaseConfig from "@/app/config/sections/showcase.json"
 import { useLanguage } from '../contexts/LanguageContext';
-import uiConfig from "@/app/config/sections/ui.json"
+import { useSiteContent } from "../hooks/useSiteContent"
 
 interface ShowcaseCard {
   id: number;
@@ -35,6 +35,8 @@ const iconMap = {
 
 export default function PanelShowcase() {
   const { t } = useLanguage();
+  const { seasonEffect } = useSiteContent()
+  const showChristmasDecor = seasonEffect.enabled && seasonEffect.type === "christmas"
   const [activeCard, setActiveCard] = useState(0)
   const [progress, setProgress] = useState(0)
   const showcaseCards: ShowcaseCard[] = showcaseConfig.showcase.cards.map(card => ({
@@ -147,7 +149,7 @@ export default function PanelShowcase() {
                         />
                       </div>
                     )}
-                    {uiConfig.christmasTheme.enabled && (
+                    {showChristmasDecor && (
                       <>
                         <Image
                           src="/christmas/button-deco-up.png"

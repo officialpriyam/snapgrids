@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { motion, AnimatePresence, useAnimation } from "framer-motion"
 import Link from "next/link"
 import Image from "next/image"
 import heroConfig from "../config/sections/hero.json"
 import type { HeroConfig } from "../types/hero"
-import uiConfig from "../config/sections/ui.json"
+import { useSiteContent } from "../hooks/useSiteContent"
 
 const config = heroConfig as HeroConfig;
 import { ArrowRight, Server, Shield, Clock, Users } from "lucide-react"
@@ -19,29 +19,42 @@ const generateBlurDataURL = () => {
 
 export default function HeroSection() {
   const { t } = useLanguage();
+  const site = useSiteContent();
+  const hero = site.hero;
+  const heroSlides = useMemo(() => {
+    const slides = hero.slides.filter((slide) => slide.visible)
+    return slides.length ? slides : hero.slides
+  }, [hero.slides])
+  const showChristmasDecor = site.seasonEffect.enabled && site.seasonEffect.type === "christmas";
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
   const [imagesLoaded, setImagesLoaded] = useState(new Set<number>())
   const [preloadedImages, setPreloadedImages] = useState(new Set<number>())
   const controls = useAnimation()
   const preloadTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const preloadImage = useCallback((index: number) => {
-    if (preloadedImages.has(index)) return;
+    if (preloadedImages.has(index) || !heroSlides[index]) return;
 
     const img = new window.Image();
     img.onload = () => {
       setPreloadedImages(prev => new Set([...prev, index]));
       setImagesLoaded(prev => new Set([...prev, index]));
     };
-    img.src = config.hero.games[index]?.banner;
-  }, [preloadedImages]);
+    img.src = heroSlides[index]?.banner;
+  }, [heroSlides, preloadedImages]);
   const preloadNextImages = useCallback((currentIndex: number) => {
-    const nextIndex = (currentIndex + 1) % config.hero.games.length;
-    const nextNextIndex = (currentIndex + 2) % config.hero.games.length;
+    if (heroSlides.length === 0) return;
+    const nextIndex = (currentIndex + 1) % heroSlides.length;
+    const nextNextIndex = (currentIndex + 2) % heroSlides.length;
     preloadImage(nextIndex);
     preloadTimeoutRef.current = setTimeout(() => {
       preloadImage(nextNextIndex);
     }, 1000);
-  }, [preloadImage]);
+  }, [heroSlides.length, preloadImage]);
+  useEffect(() => {
+    if (currentBannerIndex >= heroSlides.length) {
+      setCurrentBannerIndex(0);
+    }
+  }, [currentBannerIndex, heroSlides.length]);
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
     preloadImage(0);
@@ -50,19 +63,19 @@ export default function HeroSection() {
     setImagesLoaded(new Set([0]));
     interval = setInterval(() => {
       setCurrentBannerIndex((prev) => {
-        const next = (prev + 1) % config.hero.games.length;
+        const next = (prev + 1) % Math.max(heroSlides.length, 1);
         preloadNextImages(next);
         return next;
       });
-    }, config.hero.cycleInterval);
+    }, hero.cycleInterval);
 
     return () => {
       if (interval) clearInterval(interval);
       if (preloadTimeoutRef.current) clearTimeout(preloadTimeoutRef.current);
     };
-  }, [preloadImage, preloadNextImages])
+  }, [hero.cycleInterval, heroSlides.length, preloadImage, preloadNextImages])
 
-  const currentGame = config.hero.games[currentBannerIndex] || config.hero.games[0]
+  const currentGame = heroSlides[currentBannerIndex] || heroSlides[0] || config.hero.games[0]
   const partners = config.hero.partners
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -285,7 +298,7 @@ export default function HeroSection() {
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.5, duration: 0.8, ease: "easeOut" }}
                     >
-                      {t('hero.titlePrefix')}
+                      {hero.titlePrefix || t('hero.titlePrefix')}
                     </motion.span>
                     <AnimatePresence mode="wait">
                       <motion.span
@@ -303,7 +316,7 @@ export default function HeroSection() {
                       >
                         {currentGame.displayName}
                         {currentGame.showSuffix && (
-                          <span className="text-gray-900 dark:text-white"> {t('hero.titleSuffix')}</span>
+                          <span className="text-gray-900 dark:text-white"> {hero.titleSuffix || t('hero.titleSuffix')}</span>
                         )}
                       </motion.span>
                     </AnimatePresence>
@@ -319,7 +332,7 @@ export default function HeroSection() {
                       delay: 0.7,
                     }}
                   >
-                    {t('hero.description')}
+                    {hero.description || t('hero.description')}
                   </motion.p>
                 </motion.div>
 
@@ -335,10 +348,10 @@ export default function HeroSection() {
                     className="relative"
                   >
                     <a
-                      href="/games"
+                      href={hero.primaryButtonHref || "/games"}
                       className="group button-primary text-button-primary px-4 py-3 rounded-md font-bold text-md transition-all duration-300 flex items-center gap-2 backdrop-blur-sm no-underline shadow-none hover:shadow-none relative"
                     >
-                      <span className="orbitron-font">{t('hero.getStarted')}</span>
+                      <span className="orbitron-font">{hero.primaryButtonText || t('hero.getStarted')}</span>
                       <motion.div
                         animate={{ x: [0, 5, 0] }}
                         transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
@@ -346,7 +359,7 @@ export default function HeroSection() {
                         <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                       </motion.div>
                     </a>
-                    {uiConfig.christmasTheme.enabled && (
+                    {showChristmasDecor && (
                       <>
                         <Image
                           src="/christmas/button-deco-up.png"
@@ -373,10 +386,10 @@ export default function HeroSection() {
                     whileTap="tap"
                   >
                     <a
-                      href="#"
+                      href={hero.secondaryButtonHref || "/otherhosting"}
                       className="hidden sm:inline-flex text-gray-700 dark:text-white hover:bg-transparent hover:shadow-none px-8 py-3 rounded-lg orbitron-font text-md transition-all duration-300 items-center gap-2 no-underline"
                     >
-                      {t('hero.learnMore')}
+                      {hero.secondaryButtonText || t('hero.learnMore')}
                       <FiExternalLink className="w-4 h-4" />
                     </a>
 
@@ -416,7 +429,7 @@ export default function HeroSection() {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 1.2, duration: 0.6 }}
                   >
-                    {t('hero.getStartedFree')}
+                    {hero.helperText || t('hero.getStartedFree')}
                   </motion.span>
                 </motion.div>
               </motion.div>
@@ -459,7 +472,7 @@ export default function HeroSection() {
                         </motion.div>
                       </div>
                     </div>
-                    {uiConfig.christmasTheme.enabled && feature.index === 3 && (
+                    {showChristmasDecor && feature.index === 3 && (
                       <Image
                         src="/christmas/ice.png"
                         alt="Christmas decoration"

@@ -6,6 +6,7 @@ import { ChevronDown } from "lucide-react";
 import Image from "next/image";
 import uiConfig from "../../config/sections/ui.json";
 import type { UIConfig, Currency } from "../../types/ui";
+import { useSiteContent } from "../../hooks/useSiteContent";
 
 const config = uiConfig as UIConfig;
 const rateCacheMs = 24 * 60 * 60 * 1000;
@@ -122,6 +123,8 @@ export function CurrencySelector({
 }: CurrencySelectorProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { seasonEffect } = useSiteContent();
+  const showChristmasDecor = seasonEffect.enabled && seasonEffect.type === "christmas";
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -200,7 +203,7 @@ export function CurrencySelector({
           <ChevronDown className="w-4 h-4" />
         </motion.div>
       </motion.button>
-       {uiConfig.christmasTheme.enabled && (
+       {showChristmasDecor && (
         <>
           <Image
             src="/christmas/button-deco-up.png"
