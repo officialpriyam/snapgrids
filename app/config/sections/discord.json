@@ -30,7 +30,7 @@
         "uptime": "24/7 Uptime",
         "price": "£3.99",
         "period": "/mo",
-        "orderLink": "https://example.com/order/discord/budget/starter"
+        "orderLink": "#"
       },
       {
         "id": "budget-basic",
@@ -46,7 +46,7 @@
         "uptime": "24/7 Uptime",
         "price": "£5.99",
         "period": "/mo",
-        "orderLink": "https://example.com/order/discord/budget/basic"
+        "orderLink": "#"
       },
       {
         "id": "budget-standard",
@@ -62,7 +62,7 @@
         "uptime": "24/7 Uptime",
         "price": "£9.99",
         "period": "/mo",
-        "orderLink": "https://example.com/order/discord/budget/standard"
+        "orderLink": "#"
       }
     ],
     "premium": [
@@ -81,7 +81,7 @@
         "uptime": "24/7 Uptime",
         "price": "£19.99",
         "period": "/mo",
-        "orderLink": "https://example.com/order/discord/premium/pro"
+        "orderLink": "#"
       },
       {
         "id": "premium-advanced",
@@ -97,7 +97,7 @@
         "uptime": "24/7 Uptime",
         "price": "£34.99",
         "period": "/mo",
-        "orderLink": "https://example.com/order/discord/premium/advanced"
+        "orderLink": "#"
       },
       {
         "id": "premium-enterprise",
@@ -114,7 +114,7 @@
         "uptime": "24/7 Uptime",
         "price": "£59.99",
         "period": "/mo",
-        "orderLink": "https://example.com/order/discord/premium/enterprise"
+        "orderLink": "#"
       }
     ]
   }

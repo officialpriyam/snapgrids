@@ -64,7 +64,7 @@
           "Free Backups",
           "Priority Support"
         ],
-        "orderLink": "https://example.com/order/vds/ryzen-7/basic"
+        "orderLink": "#"
       },
       {
         "id": "VDS-R7-02",
@@ -88,7 +88,7 @@
           "Free Backups",
           "Priority Support"
         ],
-        "orderLink": "https://example.com/order/vds/ryzen-7/standard"
+        "orderLink": "#"
       },
       {
         "id": "VDS-R7-03",
@@ -112,7 +112,7 @@
           "Free Backups",
           "Priority Support"
         ],
-        "orderLink": "https://example.com/order/vds/ryzen-7/pro"
+        "orderLink": "#"
       },
       {
         "id": "VDS-R7-04",
@@ -136,7 +136,7 @@
           "Free Backups",
           "Priority Support"
         ],
-        "orderLink": "https://example.com/order/vds/ryzen-7/enterprise"
+        "orderLink": "#"
       }
     ],
     "ryzen-9": [
@@ -162,7 +162,7 @@
           "Free Backups",
           "Priority Support"
         ],
-        "orderLink": "https://example.com/order/vds/ryzen-9/basic"
+        "orderLink": "#"
       },
       {
         "id": "VDS-R9-02",
@@ -186,7 +186,7 @@
           "Free Backups",
           "Priority Support"
         ],
-        "orderLink": "https://example.com/order/vds/ryzen-9/standard"
+        "orderLink": "#"
       },
       {
         "id": "VDS-R9-03",
@@ -210,7 +210,7 @@
           "Free Backups",
           "Priority Support"
         ],
-        "orderLink": "https://example.com/order/vds/ryzen-9/pro"
+        "orderLink": "#"
       },
       {
         "id": "VDS-R9-04",
@@ -234,7 +234,7 @@
           "Free Backups",
           "Priority Support"
         ],
-        "orderLink": "https://example.com/order/vds/ryzen-9/enterprise"
+        "orderLink": "#"
       }
     ]
   }

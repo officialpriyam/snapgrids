@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import Navbar from "../components/Navbar"
 import VDSPricingSection from "../components/dedicated/VDSPricingSection"
+import ComingSoonSection from "../components/ComingSoonSection"
 import { readPublicSiteContent } from "@/lib/public-site-config"
 import { findServicePage } from "../lib/site-content"
 
@@ -17,6 +18,23 @@ export const dynamic = "force-dynamic"
 export default async function DedicatedPage() {
   const site = await readPublicSiteContent()
   const pageConfig = findServicePage(site, "dedicated")
+
+  if (pageConfig?.comingSoon) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0b0f] transition-colors duration-300">
+        <Navbar />
+        <ComingSoonSection
+          title={pageConfig.name}
+          description={pageConfig.comingSoonMessage || pageConfig.description}
+          image={pageConfig.banner}
+          color={pageConfig.primaryColor}
+        />
+        <Suspense fallback={null}>
+          <Footer />
+        </Suspense>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0a0b0f] transition-colors duration-300">

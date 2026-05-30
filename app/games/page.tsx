@@ -53,6 +53,11 @@ export default async function GamesPage() {
                   className="object-cover transition-transform duration-500 group-hover:scale-105"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-black/10" />
+                {game.comingSoon && (
+                  <span className="absolute right-4 top-4 rounded-md bg-yellow-400 px-2 py-1 text-xs font-semibold text-black">
+                    Coming Soon
+                  </span>
+                )}
                 <div className="absolute bottom-0 left-0 right-0 p-5">
                   <div className="mb-4 flex items-center gap-3">
                     <div className="relative h-10 w-10 overflow-hidden rounded-lg border border-white/20">

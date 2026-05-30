@@ -36,7 +36,7 @@ import heroConfig from '../config/sections/hero.json';
 import type { HeroConfig } from '../types/hero';
 import uiConfig from '../config/sections/ui.json';
 
-const config = navigationConfig as NavigationConfig;
+const defaultConfig = navigationConfig as NavigationConfig;
 const heroSettings = heroConfig as HeroConfig;
 
 
@@ -129,7 +129,7 @@ ThemeToggle.displayName = 'ThemeToggle'
 
 const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [showBanner, setShowBanner] = useState(config.banner.show);
+  const [showBanner, setShowBanner] = useState(defaultConfig.banner.show);
   const [isScrolled, setIsScrolled] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [confettiConfig, setConfettiConfig] = useState({
@@ -144,6 +144,11 @@ const Navbar: React.FC = () => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const site = useSiteContent();
+  const config = site.navigation ?? defaultConfig;
+
+  useEffect(() => {
+    setShowBanner(config.banner.show)
+  }, [config.banner.show])
 
   useEffect(() => {
     const handleScroll = () => {
@@ -308,8 +313,30 @@ const Navbar: React.FC = () => {
       );
     }
 
+    if (item.dropdownType === 'custom' && item.dropdownItems) {
+      return (
+        <div className="absolute rounded-b-xl top-full left-0 w-[280px] bg-white dark:bg-black/90 border-t-2 border-top-nav -mt-[2px] shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-200 z-10 p-4">
+          <div className="space-y-2">
+            {item.dropdownItems.map((dropdownItem) => (
+              <Link
+                key={`${dropdownItem.name}-${dropdownItem.href}`}
+                href={dropdownItem.href}
+                className="block p-3 rounded-lg hover:border-secondary border-primary border hover:hover-gradient transition-colors"
+                prefetch={true}
+              >
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">{dropdownItem.name}</h3>
+                {dropdownItem.description && (
+                  <p className="text-xs text-gray-600 dark:text-gray-300">{dropdownItem.description}</p>
+                )}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
     return null;
-  }, [filteredGames]);
+  }, [filteredGames, t]);
 
   const getTranslatedNavName = useCallback((itemName: string) => {
     const navKey = itemName.toLowerCase().replace(/\s+/g, '');
@@ -449,7 +476,7 @@ const Navbar: React.FC = () => {
       );
     }
 
-    if (item.hasDropdown && item.dropdownType === 'legal' && item.dropdownItems) {
+    if (item.hasDropdown && (item.dropdownType === 'legal' || item.dropdownType === 'custom') && item.dropdownItems) {
       const isActive = pathname === item.href;
       const isDropdownOpen = mobileDropdownStates[item.name] || false;
 
@@ -494,9 +521,11 @@ const Navbar: React.FC = () => {
                 className="mt-2 ml-6 space-y-1 overflow-hidden"
               >
                 {item.dropdownItems.map((dropdownItem: any) => {
-                  const translatedName = dropdownItem.name === 'Terms of Service' ? t('navbar.termsOfService') :
-                    dropdownItem.name === 'Privacy Policy' ? t('navbar.privacyPolicy') :
-                      dropdownItem.name;
+                  const translatedName = item.dropdownType === 'legal'
+                    ? dropdownItem.name === 'Terms of Service' ? t('navbar.termsOfService') :
+                      dropdownItem.name === 'Privacy Policy' ? t('navbar.privacyPolicy') :
+                        dropdownItem.name
+                    : dropdownItem.name;
 
                   return (
                     <Link
@@ -536,7 +565,7 @@ const Navbar: React.FC = () => {
         <ChevronRight className="w-4 h-4" />
       </Link>
     );
-  }, [pathname, closeMobileMenu, filteredGames, mobileDropdownStates, toggleMobileDropdown]);
+  }, [pathname, closeMobileMenu, filteredGames, mobileDropdownStates, toggleMobileDropdown, getTranslatedNavName, t]);
 
   return (
     <div style={{ overflowX: 'hidden', position: 'relative' }}>

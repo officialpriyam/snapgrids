@@ -60,6 +60,11 @@ export default async function HomeGameHostingSection() {
                     className="object-cover"
                   />
                 </div>
+                {game.comingSoon && (
+                  <span className="absolute right-4 top-4 rounded-md bg-yellow-400 px-2 py-1 text-xs font-semibold text-black">
+                    Coming Soon
+                  </span>
+                )}
               </div>
               <div className="p-4">
                 <h3 className="mb-2 text-base font-bold text-gray-900 dark:text-white">{game.name}</h3>

@@ -7,6 +7,7 @@ import FAQSection from "../../components/FAQSection"
 import PanelShowcase from "../../components/PanelShowcase"
 import Footer from "../../components/Footer"
 import GenericServicePricingSection from "../../components/services/GenericServicePricingSection"
+import ComingSoonSection from "../../components/ComingSoonSection"
 import { readPublicSiteContent } from "@/lib/public-site-config"
 import { findServicePage, visibleServices } from "../../lib/site-content"
 
@@ -36,6 +37,22 @@ export default async function ServicePage({ params }: ServicePageProps) {
 
   if (!page || !visibleServices(site).some((item) => item.slug === page.slug)) {
     notFound()
+  }
+
+  if (page.comingSoon) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0b0f] transition-colors duration-300">
+        <Navbar />
+        <ComingSoonSection
+          title={page.name}
+          description={page.comingSoonMessage || page.description}
+          image={page.banner}
+          color={page.primaryColor}
+          backHref="/"
+        />
+        <Footer />
+      </div>
+    )
   }
 
   return (

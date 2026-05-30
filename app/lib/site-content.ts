@@ -1,8 +1,10 @@
 import gamesConfig from "../config/sections/games.json"
 import legalConfig from "../config/sections/legal.json"
+import navigationConfig from "../config/sections/navigation.json"
 import pricingConfig from "../config/sections/pricing.json"
 import type { GamesConfig } from "../types/games"
 import type { LegalConfig, LegalPageConfig, LegalSection } from "../types/legal"
+import type { DropdownItem, NavigationConfig, NavigationItem, SocialLink } from "../types/navigation"
 import type { PricingConfig } from "../types/pricing"
 import type {
   CmsFooter,
@@ -17,6 +19,7 @@ import type { AdminMappings } from "../types/paymenter"
 
 const gameDefaults = gamesConfig as GamesConfig
 const legalDefaults = legalConfig as LegalConfig
+const navigationDefaults = navigationConfig as NavigationConfig
 const pricingDefaults = pricingConfig as PricingConfig
 
 const defaultServices: CmsServicePage[] = [
@@ -32,6 +35,8 @@ const defaultServices: CmsServicePage[] = [
     primaryColor: "#3b82f6",
     startingAt: "$2.70/mo",
     visible: true,
+    comingSoon: false,
+    comingSoonMessage: "",
     categoryId: "",
   },
   {
@@ -46,6 +51,8 @@ const defaultServices: CmsServicePage[] = [
     primaryColor: "#3b82f6",
     startingAt: "$99.99/mo",
     visible: true,
+    comingSoon: false,
+    comingSoonMessage: "",
     categoryId: "",
   },
   {
@@ -60,6 +67,8 @@ const defaultServices: CmsServicePage[] = [
     primaryColor: "#3b82f6",
     startingAt: "$2.99/mo",
     visible: true,
+    comingSoon: false,
+    comingSoonMessage: "",
     categoryId: "",
   },
   {
@@ -74,6 +83,8 @@ const defaultServices: CmsServicePage[] = [
     primaryColor: "#22c55e",
     startingAt: "$0.90/mo",
     visible: true,
+    comingSoon: false,
+    comingSoonMessage: "",
     categoryId: "",
   },
 ]
@@ -116,6 +127,8 @@ function defaultGames(): CmsGamePage[] {
     startingAt: game.startingAt,
     featured: game.featured,
     visible: true,
+    comingSoon: false,
+    comingSoonMessage: "",
     categoryId: "",
   }))
 }
@@ -154,6 +167,8 @@ function normalizeGamePage(value: Partial<CmsGamePage>, fallback: CmsGamePage, m
     startingAt: text(value.startingAt, fallback.startingAt),
     featured: bool(value.featured, fallback.featured),
     visible: bool(value.visible, fallback.visible),
+    comingSoon: bool(value.comingSoon, fallback.comingSoon),
+    comingSoonMessage: text(value.comingSoonMessage, fallback.comingSoonMessage),
     categoryId: text(value.categoryId, mappings.games[slug] ?? mappings.games[fallback.slug] ?? fallback.categoryId),
   }
 }
@@ -178,7 +193,78 @@ function normalizeServicePage(
     primaryColor: text(value.primaryColor, fallback.primaryColor),
     startingAt: text(value.startingAt, fallback.startingAt),
     visible: bool(value.visible, fallback.visible),
+    comingSoon: bool(value.comingSoon, fallback.comingSoon),
+    comingSoonMessage: text(value.comingSoonMessage, fallback.comingSoonMessage),
     categoryId: text(value.categoryId, mappings.pages[slug] ?? mappings.pages[fallback.slug] ?? fallback.categoryId),
+  }
+}
+
+function normalizeDropdownItem(value: Partial<DropdownItem>, fallback?: DropdownItem): DropdownItem {
+  return {
+    name: text(value.name, fallback?.name ?? "Menu item"),
+    href: text(value.href, fallback?.href ?? "/"),
+    description: text(value.description, fallback?.description ?? ""),
+    icon: text(value.icon, fallback?.icon ?? ""),
+  }
+}
+
+function normalizeNavigationItem(value: Partial<NavigationItem>, fallback?: NavigationItem): NavigationItem {
+  const dropdownType =
+    value.dropdownType === "games" || value.dropdownType === "legal" || value.dropdownType === "custom"
+      ? value.dropdownType
+      : fallback?.dropdownType
+  const rawDropdownItems = Array.isArray(value.dropdownItems)
+    ? value.dropdownItems
+    : fallback?.dropdownItems ?? []
+
+  return {
+    name: text(value.name, fallback?.name ?? "Menu"),
+    href: text(value.href, fallback?.href ?? "/"),
+    icon: text(value.icon, fallback?.icon ?? ""),
+    hasDropdown: bool(value.hasDropdown, fallback?.hasDropdown ?? false),
+    dropdownType,
+    dropdownItems: rawDropdownItems.map((item, index) =>
+      normalizeDropdownItem(item as Partial<DropdownItem>, fallback?.dropdownItems?.[index])
+    ),
+  }
+}
+
+function normalizeSocialLink(value: Partial<SocialLink>, fallback?: SocialLink): SocialLink {
+  return {
+    name: text(value.name, fallback?.name ?? "Social"),
+    href: text(value.href, fallback?.href ?? "#"),
+    icon: text(value.icon, fallback?.icon ?? "discord"),
+  }
+}
+
+function normalizeNavigation(value: Partial<NavigationConfig> | undefined): NavigationConfig {
+  const rawNavigation = Array.isArray(value?.mainNavigation)
+    ? value.mainNavigation
+    : navigationDefaults.mainNavigation
+  const rawSocialLinks = Array.isArray(value?.socialLinks)
+    ? value.socialLinks
+    : navigationDefaults.socialLinks
+
+  return {
+    mainNavigation: rawNavigation.map((item, index) =>
+      normalizeNavigationItem(item as Partial<NavigationItem>, navigationDefaults.mainNavigation[index])
+    ),
+    socialLinks: rawSocialLinks.map((item, index) =>
+      normalizeSocialLink(item as Partial<SocialLink>, navigationDefaults.socialLinks[index])
+    ),
+    clientSpace: {
+      name: text(value?.clientSpace?.name, navigationDefaults.clientSpace.name),
+      href: text(value?.clientSpace?.href, navigationDefaults.clientSpace.href),
+      icon: text(value?.clientSpace?.icon, navigationDefaults.clientSpace.icon),
+    },
+    banner: {
+      show: bool(value?.banner?.show, navigationDefaults.banner.show),
+      text: text(value?.banner?.text, navigationDefaults.banner.text),
+      couponCode: text(value?.banner?.couponCode, navigationDefaults.banner.couponCode),
+      useThemeColor: bool(value?.banner?.useThemeColor, navigationDefaults.banner.useThemeColor ?? true),
+      backgroundColor: text(value?.banner?.backgroundColor, navigationDefaults.banner.backgroundColor),
+      fallbackColor: text(value?.banner?.fallbackColor, navigationDefaults.banner.fallbackColor),
+    },
   }
 }
 
@@ -291,11 +377,14 @@ export function sanitizeSiteContent(value: Partial<SiteContent> | undefined, map
         slug,
         name: text(game.name, "New Game"),
         description: "",
-        icon: "/placeholder.svg",
-        banner: "/placeholder.svg",
+        icon: "/meta/Logo.png",
+        banner: "/meta/Banner.png",
         primaryColor: "#3b82f6",
         startingAt: "$0.00/mo",
         featured: false,
+        visible: true,
+        comingSoon: false,
+        comingSoonMessage: "",
       }
       return normalizeGamePage(game, fallback, mappings)
     })
@@ -313,10 +402,13 @@ export function sanitizeSiteContent(value: Partial<SiteContent> | undefined, map
         name: text(service.name, "New Hosting Page"),
         label: text(service.label, "Hosting"),
         description: "",
-        icon: "/placeholder.svg",
-        banner: "/placeholder.svg",
+        icon: "/meta/Logo.png",
+        banner: "/meta/Banner.png",
         primaryColor: "#3b82f6",
         startingAt: "$0.00/mo",
+        visible: true,
+        comingSoon: false,
+        comingSoonMessage: "",
       }
       return normalizeServicePage(service, fallback, mappings)
     })
@@ -332,6 +424,7 @@ export function sanitizeSiteContent(value: Partial<SiteContent> | undefined, map
 
   return {
     homeGameSection,
+    navigation: normalizeNavigation(value?.navigation),
     games: normalizedGames,
     services: normalizedServices,
     legal: {

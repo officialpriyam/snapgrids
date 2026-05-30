@@ -1,4 +1,5 @@
 import type { LegalConfig } from "./legal"
+import type { NavigationConfig } from "./navigation"
 
 export interface CmsGamePage {
   id: string
@@ -11,6 +12,8 @@ export interface CmsGamePage {
   startingAt: string
   featured: boolean
   visible: boolean
+  comingSoon: boolean
+  comingSoonMessage: string
   categoryId: string
 }
 
@@ -26,6 +29,8 @@ export interface CmsServicePage {
   primaryColor: string
   startingAt: string
   visible: boolean
+  comingSoon: boolean
+  comingSoonMessage: string
   categoryId: string
 }
 
@@ -61,6 +66,7 @@ export interface CmsFooter {
 
 export interface SiteContent {
   homeGameSection: CmsHomeGameSection
+  navigation: NavigationConfig
   games: CmsGamePage[]
   services: CmsServicePage[]
   legal: LegalConfig
