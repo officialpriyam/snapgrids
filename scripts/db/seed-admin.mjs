@@ -3,7 +3,7 @@ import { withPool } from "./utils.mjs"
 
 const ADMIN_EMAIL = "admin@snapgrids.store"
 const DEFAULT_PASSWORD_HASH =
-  "pbkdf2_sha256:310000:-nuAA7hAYQPfPmXZ2QdrdQ:nmgI6v0RT0B_Cd5QANFP4nrJVnrvatsutznUyrJS7gA"
+  "pbkdf2_sha256:310000:D8A_-xyp9KTSX4Qwks5gIA:IbORGTZTEqI_0JxWKjxSuWazkFE1EN6mgmL0sBP6bog"
 
 function defaultAdminConfig() {
   return {
