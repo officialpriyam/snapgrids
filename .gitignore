@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+out/
+
+# Environment files
+.env
+.env.local
+.env*.local
+.env.bak
+
+# Database
+codex.db
+codex.db-journal
+
+# Generated files
+*.tsbuildinfo
+next-env.d.ts
+
+# Sandbox & uploads
+sandbox_env/
+uploads/
+schematics/
+
+# Server output
+/server.*
+/server_output.*
+stderr.*
+stdout.*
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Cache
+.cache/
+.npm-cache/
+__pycache__/
+*.pyc
+
+# Temp
+temp/
+tmp/
+sss/
+
+# Velix generator output
+velix-generator/output/
+
+# Backend specific
+backend/config.yml

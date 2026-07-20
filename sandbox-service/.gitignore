@@ -1,0 +1,13 @@
+*.exe
+.velix-sandbox/
+sandbox/
+cache/
+storage/
+.env
+.env.local
+.env*.local
+.log
+.velix-sandbox
+sandbox_service.exe
+velix-sandbox.exe
+sandbox-service.exe
