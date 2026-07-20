@@ -3,6 +3,44 @@ import uuid
 import os
 import time
 import requests
+import base64
+from io import BytesIO
+from PIL import Image
+
+
+def _generate_default_texture(prompt):
+    colors = [
+        (100, 100, 100), (140, 140, 140), (180, 140, 100),
+        (80, 120, 80), (120, 80, 60), (60, 60, 80)
+    ]
+    p = prompt.lower()
+    if any(k in p for k in ['knight', 'armor', 'sword', 'shield']):
+        colors = [(120, 120, 130), (180, 180, 190), (80, 80, 90), (160, 140, 60)]
+    elif any(k in p for k in ['tree', 'plant', 'nature']):
+        colors = [(60, 100, 40), (80, 130, 50), (100, 70, 40), (40, 80, 30)]
+    elif any(k in p for k in ['dragon', 'monster', 'creature']):
+        colors = [(120, 40, 40), (80, 20, 20), (180, 60, 30), (40, 40, 40)]
+    elif any(k in p for k in ['wizard', 'mage', 'magic']):
+        colors = [(60, 40, 120), (80, 60, 160), (140, 100, 200), (40, 30, 80)]
+
+    img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+    pixels = img.load()
+    for y in range(64):
+        for x in range(64):
+            ci = ((y // 8) + (x // 8)) % len(colors)
+            r, g, b = colors[ci]
+            noise = ((x * 7 + y * 13) % 5) - 2
+            pixels[x, y] = (
+                max(0, min(255, r + noise)),
+                max(0, min(255, g + noise)),
+                max(0, min(255, b + noise)),
+                255
+            )
+
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+    return f'data:image/png;base64,{b64}'
 
 
 def generate_model(prompt: str, texture_ref: str, output_dir: str) -> dict:
@@ -38,8 +76,14 @@ RULES:
 - Include ALL body parts relevant to the description
 - Output ONLY valid JSON"""
 
-    raw_json = _call_llm(cuboid_prompt)
-    cuboids = _parse_cuboid_json(raw_json)
+    raw_json = ''
+    try:
+        raw_json = _call_llm(cuboid_prompt)
+    except Exception as e:
+        print(f'[ModelGen] LLM error: {e}')
+        raw_json = ''
+
+    cuboids = _parse_cuboid_json(raw_json) if raw_json else []
 
     if not cuboids:
         print(f'[ModelGen] LLM returned no elements, using procedural fallback')
@@ -55,6 +99,8 @@ RULES:
     bones = _build_bone_hierarchy(cuboids)
     idle_anim = _generate_idle_animation(bones)
 
+    tex_source = _generate_default_texture(prompt)
+
     bbmodel = {
         'meta': {
             'format_version': '4.10',
@@ -66,9 +112,11 @@ RULES:
         'outliner': bones,
         'textures': [
             {
-                'path': texture_ref or 'texture.png',
+                'source': tex_source,
                 'name': 'texture',
-                'uuid': str(uuid.uuid4())
+                'uuid': str(uuid.uuid4()),
+                'folder': '',
+                'namespace': ''
             }
         ],
         'animations': [idle_anim] if idle_anim else []
@@ -268,27 +316,30 @@ def _build_chest_model() -> list:
     ]
 
 
-FREE_MODELS = [
-    'openai/gpt-oss-120b:free',
-    'qwen/qwen3-coder:free',
-    'google/gemma-4-31b-it:free',
-    'openai/gpt-oss-20b:free',
-    'nvidia/nemotron-3-super-120b-a12b:free',
+NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
+
+MODELS = [
+    'minimaxai/minimax-m2.7',
+    'minimaxai/minimax-m3',
+    'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+    'meta/llama-3.1-70b-instruct',
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b',
 ]
 
 
 def _call_llm(prompt: str) -> str:
     api_key = os.environ.get('OPENROUTER_API_KEY', '')
     if not api_key:
-        print('[ModelGen] No OPENROUTER_API_KEY set')
+        print('[ModelGen] No NVIDIA API key in env')
         return json.dumps({'elements': []})
 
     last_error = None
-    for model in FREE_MODELS:
+    for model in MODELS:
         try:
-            print(f'[ModelGen] Trying model: {model}')
+            print(f'[ModelGen] Trying {model}')
             resp = requests.post(
-                'https://openrouter.ai/api/v1/chat/completions',
+                NVIDIA_URL,
                 headers={
                     'Authorization': f'Bearer {api_key}',
                     'Content-Type': 'application/json'
@@ -302,12 +353,8 @@ def _call_llm(prompt: str) -> str:
                     'temperature': 0.3,
                     'max_tokens': 4000
                 },
-                timeout=90
+                timeout=60
             )
-            if resp.status_code == 402:
-                print(f'[ModelGen] Model {model} requires payment, trying next...')
-                last_error = 'insufficient_credits'
-                continue
             resp.raise_for_status()
             content = resp.json()['choices'][0]['message']['content']
             content = content.strip()
@@ -318,11 +365,11 @@ def _call_llm(prompt: str) -> str:
             print(f'[ModelGen] Success with {model}')
             return content
         except Exception as e:
-            print(f'[ModelGen] Model {model} failed: {e}')
+            print(f'[ModelGen] {model} failed: {e}')
             last_error = e
             continue
 
-    print(f'[ModelGen] All models failed, last error: {last_error}')
+    print(f'[ModelGen] All models failed: {last_error}')
     return json.dumps({'elements': []})
 
 

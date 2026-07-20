@@ -62,6 +62,10 @@ sss/
 
 # Velix generator output
 velix-generator/output/
+velix-generator/test_*.py
+velix-generator/deploy_*.sh
+velix-generator/deploy_*.txt
+validate_*.py
 
 # Backend specific
 backend/config.yml

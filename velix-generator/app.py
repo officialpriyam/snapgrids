@@ -61,11 +61,10 @@ def gen_schematic():
     data = request.json
     prompt = data.get('prompt', '')
     size = data.get('size', 48)
-    mode = data.get('mode', 'fast')
     if not prompt:
         return jsonify({'error': 'prompt required'}), 400
     try:
-        result = generate_schematic(prompt, size, mode, OUTPUT_DIR)
+        result = generate_schematic(prompt, size, output_dir=OUTPUT_DIR)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -110,7 +110,7 @@ def write_schematic_nbt(schematic_data):
 
     palette = {}
     for block_id, idx in schematic_data['palette'].items():
-        palette[str(idx)] = (NBTPayload.TAG_STRING, block_id)
+        palette[block_id] = (NBTPayload.TAG_INT, idx)
     root['Palette'] = (NBTPayload.TAG_COMPOUND, palette)
     root['PaletteMax'] = (NBTPayload.TAG_INT, len(schematic_data['palette']))
 

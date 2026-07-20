@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, optionalAuth } from '../middleware/auth';
 import axios from 'axios';
 
 const router = Router();
@@ -29,7 +29,7 @@ function rewriteUrls(data: any): any {
     return result;
 }
 
-router.post('/texture', asyncHandler(requireAuth), async (req, res) => {
+router.post('/texture', asyncHandler(optionalAuth), async (req, res) => {
     try {
         const result = await axios.post(`${GENERATOR_URL}/generate/texture`, req.body, {
             timeout: 180000,
@@ -42,7 +42,7 @@ router.post('/texture', asyncHandler(requireAuth), async (req, res) => {
     }
 });
 
-router.post('/model', asyncHandler(requireAuth), async (req, res) => {
+router.post('/model', asyncHandler(optionalAuth), async (req, res) => {
     try {
         const result = await axios.post(`${GENERATOR_URL}/generate/model`, req.body, {
             timeout: 120000,
@@ -55,7 +55,7 @@ router.post('/model', asyncHandler(requireAuth), async (req, res) => {
     }
 });
 
-router.post('/schematic', asyncHandler(requireAuth), async (req, res) => {
+router.post('/schematic', asyncHandler(optionalAuth), async (req, res) => {
     try {
         const result = await axios.post(`${GENERATOR_URL}/generate/schematic`, req.body, {
             timeout: 180000,
