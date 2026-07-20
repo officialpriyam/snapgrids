@@ -2,8 +2,6 @@ import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { requireAuth } from '../middleware/auth';
 import axios from 'axios';
-import fs from 'fs';
-import path from 'path';
 
 const router = Router();
 const GENERATOR_URL = process.env.GENERATOR_URL || 'http://localhost:5000';
@@ -17,13 +15,27 @@ function getForwardHeaders(req: any): Record<string, string> {
     return headers;
 }
 
+function rewriteUrls(data: any): any {
+    if (!data || typeof data !== 'object') return data;
+    const result = { ...data };
+    if (result.download_url && typeof result.download_url === 'string') {
+        const filename = result.download_url.replace('/download/', '');
+        result.download_url = `/api/generator/download/${filename}`;
+    }
+    if (result.preview_url && typeof result.preview_url === 'string') {
+        const filename = result.preview_url.replace('/preview/', '');
+        result.preview_url = `/api/generator/preview/${filename}`;
+    }
+    return result;
+}
+
 router.post('/texture', asyncHandler(requireAuth), async (req, res) => {
     try {
         const result = await axios.post(`${GENERATOR_URL}/generate/texture`, req.body, {
             timeout: 180000,
             headers: getForwardHeaders(req)
         });
-        res.json(result.data);
+        res.json(rewriteUrls(result.data));
     } catch (err: any) {
         console.error('[Generator] Texture error:', err.message);
         res.status(500).json({ error: err.response?.data?.error || err.message || 'Texture generation failed' });
@@ -36,7 +48,7 @@ router.post('/model', asyncHandler(requireAuth), async (req, res) => {
             timeout: 120000,
             headers: getForwardHeaders(req)
         });
-        res.json(result.data);
+        res.json(rewriteUrls(result.data));
     } catch (err: any) {
         console.error('[Generator] Model error:', err.message);
         res.status(500).json({ error: err.response?.data?.error || err.message || 'Model generation failed' });
@@ -49,7 +61,7 @@ router.post('/schematic', asyncHandler(requireAuth), async (req, res) => {
             timeout: 180000,
             headers: getForwardHeaders(req)
         });
-        res.json(result.data);
+        res.json(rewriteUrls(result.data));
     } catch (err: any) {
         console.error('[Generator] Schematic error:', err.message);
         res.status(500).json({ error: err.response?.data?.error || err.message || 'Schematic generation failed' });
@@ -57,27 +69,53 @@ router.post('/schematic', asyncHandler(requireAuth), async (req, res) => {
 });
 
 router.get('/download/:filename', async (req, res) => {
-    const filePath = path.join(__dirname, '../../velix-generator/output', req.params.filename);
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'File not found' });
+    try {
+        const filename = decodeURIComponent(req.params.filename);
+        const response = await axios.get(`${GENERATOR_URL}/download/${filename}`, {
+            responseType: 'arraybuffer',
+            timeout: 30000
+        });
+        const ext = filename.split('.').pop()?.toLowerCase() || '';
+        const mimeTypes: Record<string, string> = {
+            'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+            'schem': 'application/octet-stream', 'bbmodel': 'application/json'
+        };
+        res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(Buffer.from(response.data));
+    } catch (err: any) {
+        console.error('[Generator] Download error:', err.message);
+        res.status(404).json({ error: 'File not found' });
     }
-    res.download(filePath);
 });
 
 router.get('/preview/:filename', async (req, res) => {
-    const filePath = path.join(__dirname, '../../velix-generator/output', req.params.filename);
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'File not found' });
+    try {
+        const filename = decodeURIComponent(req.params.filename);
+        const response = await axios.get(`${GENERATOR_URL}/preview/${filename}`, {
+            responseType: 'arraybuffer',
+            timeout: 30000
+        });
+        const ext = filename.split('.').pop()?.toLowerCase() || '';
+        const mimeTypes: Record<string, string> = {
+            'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+            'schem': 'application/octet-stream', 'bbmodel': 'application/json'
+        };
+        res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+        res.send(Buffer.from(response.data));
+    } catch (err: any) {
+        console.error('[Generator] Preview error:', err.message);
+        res.status(404).json({ error: 'File not found' });
     }
-    const ext = path.extname(filePath).toLowerCase();
-    const mimeTypes: Record<string, string> = {
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.schem': 'application/octet-stream',
-        '.bbmodel': 'application/json'
-    };
-    res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
-    fs.createReadStream(filePath).pipe(res);
+});
+
+router.get('/health', async (_req, res) => {
+    try {
+        const result = await axios.get(`${GENERATOR_URL}/health`, { timeout: 5000 });
+        res.json(result.data);
+    } catch {
+        res.json({ status: 'offline', service: 'velix-generator' });
+    }
 });
 
 export default router;
