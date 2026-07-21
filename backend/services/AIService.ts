@@ -43,7 +43,9 @@ export const generateCode = async (
     enableWebSearch: boolean = false,
     history?: Array<{ role: string; content: string }>,
     platform?: string,
-    language?: string
+    language?: string,
+    images?: Array<{ data: string; mimeType: string }>,
+    fileContext?: Array<{ path: string; content: string }>
 ): Promise<CodeGenerationResult> => {
     const selectedModel = model || config.ai_models?.[0] || "openai/gpt-3.5-turbo";
 
@@ -496,10 +498,10 @@ ${cappedSkills}`;
         ];
 
         // Inject conversation history so AI remembers previous context
-        // Cap history to avoid exceeding context window: max 20 messages, max 6000 chars total
-        const MAX_HISTORY_CHARS = 6000;
+        // Cap history to avoid exceeding context window: max 30 messages, max 10000 chars total
+        const MAX_HISTORY_CHARS = 10000;
         if (history && history.length > 0) {
-            const trimmedHistory = history.slice(-20);
+            const trimmedHistory = history.slice(-30);
             let historyChars = 0;
             for (const msg of trimmedHistory) {
                 const msgLen = msg.content.length;
@@ -507,7 +509,7 @@ ${cappedSkills}`;
                 historyChars += msgLen;
                 messages.push({
                     role: msg.role === 'user' ? 'user' : 'assistant',
-                    content: msg.content.length > 2000 ? msg.content.slice(0, 2000) + '...' : msg.content
+                    content: msg.content.length > 3000 ? msg.content.slice(0, 3000) + '...' : msg.content
                 });
             }
             console.log(`[AIService] Injected ${messages.length - 1} history messages (${historyChars} chars)`);
@@ -516,7 +518,34 @@ ${cappedSkills}`;
         // Cap the user prompt itself if it's extremely long
         const MAX_PROMPT_CHARS = 4000;
         const finalPrompt = prompt.length > MAX_PROMPT_CHARS ? prompt.slice(0, MAX_PROMPT_CHARS) + '\n[... prompt truncated due to length ...]' : prompt;
-        messages.push({ role: "user", content: finalPrompt });
+
+        // Build user message — supports images (vision) and file context
+        if (images && images.length > 0) {
+            // Multimodal message with images for vision-capable models
+            const contentParts: any[] = [{ type: 'text', text: finalPrompt }];
+            for (const img of images) {
+                contentParts.push({
+                    type: 'image_url',
+                    image_url: {
+                        url: `data:${img.mimeType};base64,${img.data}`,
+                        detail: 'auto'
+                    }
+                });
+            }
+            if (fileContext && fileContext.length > 0) {
+                const fileSummary = fileContext.map(f => `- ${f.path} (${f.content.length} chars)`).join('\n');
+                contentParts[0].text = `[PROJECT FILES (${fileContext.length} files)]:\n${fileSummary}\n\n${finalPrompt}`;
+            }
+            messages.push({ role: 'user', content: contentParts });
+        } else {
+            // Text-only message
+            let textContent = finalPrompt;
+            if (fileContext && fileContext.length > 0) {
+                const fileSummary = fileContext.map(f => `- ${f.path} (${f.content.length} chars)`).join('\n');
+                textContent = `[PROJECT FILES (${fileContext.length} files)]:\n${fileSummary}\n\n${finalPrompt}`;
+            }
+            messages.push({ role: 'user', content: textContent });
+        }
 
         const searchTool = {
             type: "function",

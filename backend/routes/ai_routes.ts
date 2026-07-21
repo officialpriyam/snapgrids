@@ -39,7 +39,7 @@ router.post('/enhance-prompt', asyncHandler(async (req, res) => {
  */
 router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res) => {
     console.log('[AI Routes] /generate called');
-    const { prompt, model, language, sessionId: existingSessionId, enableWebSearch } = req.body;
+    const { prompt, model, language, sessionId: existingSessionId, enableWebSearch, images, fileContext } = req.body;
 
     if (!prompt) {
         return res.status(400).json({ error: "Prompt is required" });
@@ -83,7 +83,7 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
             }
         }
 
-        const result = await generateCode(prompt, model, context, skipDocs, enableWebSearch === true, history, platform, language);
+        const result = await generateCode(prompt, model, context, skipDocs, enableWebSearch === true, history, platform, language, images, fileContext);
         files = result.files || [];
         rawResponse = result.rawResponse || '';
         modelUsed = result.model || model;
@@ -174,15 +174,18 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
             `Generated ${fileCount} ${platformLabel}/${languageLabel} file(s): ${fileList}`,
         ];
         if (rawResponse) {
-            // Extract only non-code explanation lines from the response
+            // Extract explanation lines and first few code lines for better context
             const explanationLines = rawResponse.split('\n')
                 .filter(line => !line.startsWith('```') && !line.startsWith('FILE:') && !line.match(/^\*\*.*\*\*$/) && line.trim().length > 0)
-                .slice(0, 10)
+                .slice(0, 15)
                 .join('\n');
             if (explanationLines) summaryParts.push(explanationLines);
         }
+        // Include file sizes for context
+        const fileSizes = files.map(f => `${f.path} (${f.content.length} chars)`).join(', ');
+        summaryParts.push(`Files created: ${fileSizes}`);
         const summary = summaryParts.join('\n\n');
-        await dbService.addMessage(sessionId, 'assistant', summary.slice(0, 2000));
+        await dbService.addMessage(sessionId, 'assistant', summary.slice(0, 3000));
     } catch (e: any) {
         console.warn('[AI Routes] Failed to save chat history:', e.message);
     }
