@@ -71,7 +71,7 @@ function getFileType(filename: string): string {
 export const ChatPanel = ({
     sessionId,
     onCodeGenerated,
-    model = 'anthropic/claude-3-sonnet',
+    model = 'priyx-ultra',
     language = 'java',
     platform = 'minecraft',
     compact = false,

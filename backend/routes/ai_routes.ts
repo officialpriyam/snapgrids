@@ -326,8 +326,11 @@ router.get('/languages', (req, res) => {
 });
 
 /**
- * Get available AI models - live from NVIDIA API (OpenRouter optional)
- * Only shows: all NVIDIA models + curated free OpenRouter models for coding
+ * GET /ai/models
+ * Returns curated models grouped into 3 tiers:
+ * - Priyx Lite: Free lightweight models
+ * - Priyx Ultra: High-quality free models
+ * - Priyx Max: Best available models (randomly selected)
  */
 router.get('/models', asyncHandler(async (req, res) => {
     try {
@@ -348,31 +351,47 @@ router.get('/models', asyncHandler(async (req, res) => {
             .filter((r): r is PromiseFulfilledResult<any[]> => r.status === 'fulfilled')
             .flatMap(r => r.value);
 
-        // Curated free models that are best for coding
-        const ALLOWED_FREE_MODELS = [
+        // Tier definitions
+        const LITE_MODELS = [
             'openai/gpt-oss-20b:free',
-            'openai/gpt-oss-120b:free',
-            'meta-llama/llama-3.3-70b-instruct:free',
-            'qwen/qwen3-coder:free',
-            'qwen/qwen3-next-80b-a3b-instruct:free',
             'google/gemma-4-26b-a4b-it:free',
             'google/gemma-4-31b-it:free',
-            'nousresearch/hermes-3-llama-3.1-405b:free'
+            'meta-llama/llama-3.3-70b-instruct:free',
+        ];
+
+        const ULTRA_MODELS = [
+            'qwen/qwen3-coder:free',
+            'qwen/qwen3-next-80b-a3b-instruct:free',
+            'openai/gpt-oss-120b:free',
+            'nousresearch/hermes-3-llama-3.1-405b:free',
+            'nvidia/nemotron-3-super-120b-a12b:free',
         ];
 
         // Admin override: comma-separated list of additional model IDs to allow
         const extraModels = (process.env.EXTRA_ALLOWED_MODELS || '').split(',').map(s => s.trim()).filter(Boolean);
 
-        // Filter: keep all NVIDIA models, only curated free OpenRouter models
+        // All allowed free models (lite + ultra + extras)
+        const ALL_ALLOWED_FREE = [...LITE_MODELS, ...ULTRA_MODELS, ...extraModels];
+
+        // Filter: keep all NVIDIA models + curated free models
         const filtered = all.filter(m => {
             if (m.provider === 'nvidia') return true;
-            if (m.id.endsWith(':free')) return ALLOWED_FREE_MODELS.includes(m.id) || extraModels.includes(m.id);
+            if (m.id.endsWith(':free')) return ALL_ALLOWED_FREE.includes(m.id);
             return false;
         });
 
-        console.log(`[AI Routes] Models: ${all.length} total → ${filtered.length} shown (NVIDIA + curated free)`);
+        // Separate by tier
+        const liteModels = filtered.filter(m => LITE_MODELS.includes(m.id));
+        const ultraModels = filtered.filter(m => ULTRA_MODELS.includes(m.id));
+        // Max tier = all NVIDIA models + best OpenRouter models
+        const maxModels = filtered.filter(m =>
+            m.provider === 'nvidia' || ULTRA_MODELS.includes(m.id)
+        );
 
-        if (filtered.length === 0) {
+        console.log(`[AI Routes] Models: ${all.length} total → Lite: ${liteModels.length}, Ultra: ${ultraModels.length}, Max: ${maxModels.length}`);
+
+        // If no models fetched, use config fallbacks
+        if (liteModels.length === 0 && ultraModels.length === 0 && maxModels.length === 0) {
             const fallback = (config.nvidia_models || []).map((m: string) => ({
                 id: m,
                 name: m.split('/').pop()?.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) || m,
@@ -380,10 +399,36 @@ router.get('/models', asyncHandler(async (req, res) => {
                 context_length: 131072,
                 provider: 'nvidia' as const
             }));
-            return res.json(fallback);
+            return res.json({
+                tiers: {
+                    lite: { name: 'Priyx Lite', description: 'Fast & free lightweight models', models: [] },
+                    ultra: { name: 'Priyx Ultra', description: 'High-quality free models', models: [] },
+                    max: { name: 'Priyx Max', description: 'Best available models — randomly selected', models: fallback }
+                },
+                flat: fallback
+            });
         }
 
-        res.json(filtered);
+        res.json({
+            tiers: {
+                lite: {
+                    name: 'Priyx Lite',
+                    description: 'Fast & free — lightweight models for quick tasks',
+                    models: liteModels
+                },
+                ultra: {
+                    name: 'Priyx Ultra',
+                    description: 'High-quality free models for serious coding',
+                    models: ultraModels
+                },
+                max: {
+                    name: 'Priyx Max',
+                    description: 'Best available models — randomly selected from OpenRouter & NVIDIA',
+                    models: maxModels
+                }
+            },
+            flat: filtered
+        });
     } catch (err) {
         console.error('[AI Routes] /models error:', err);
         const fallback = (config.nvidia_models || []).map((m: string) => ({
@@ -393,7 +438,14 @@ router.get('/models', asyncHandler(async (req, res) => {
             context_length: 131072,
             provider: 'nvidia' as const
         }));
-        res.json(fallback);
+        res.json({
+            tiers: {
+                lite: { name: 'Priyx Lite', description: 'Fast & free lightweight models', models: [] },
+                ultra: { name: 'Priyx Ultra', description: 'High-quality free models', models: [] },
+                max: { name: 'Priyx Max', description: 'Best available models — randomly selected', models: fallback }
+            },
+            flat: fallback
+        });
     }
 }));
 

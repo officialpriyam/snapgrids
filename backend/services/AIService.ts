@@ -16,11 +16,67 @@ export interface CodeGenerationResult {
     model: string;
 }
 
+// Priyx tier model pools
+const PRIYX_LITE_MODELS = [
+    'openai/gpt-oss-20b:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'google/gemma-4-31b-it:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
+];
+
+const PRIYX_ULTRA_MODELS = [
+    'qwen/qwen3-coder:free',
+    'qwen/qwen3-next-80b-a3b-instruct:free',
+    'openai/gpt-oss-120b:free',
+    'nousresearch/hermes-3-llama-3.1-405b:free',
+    'nvidia/nemotron-3-super-120b-a12b:free',
+];
+
+// Priyx Max: best models from OpenRouter + all NVIDIA models (randomly selected)
+const PRIYX_MAX_OPENROUTER = [
+    'qwen/qwen3-coder:free',
+    'qwen/qwen3-next-80b-a3b-instruct:free',
+    'openai/gpt-oss-120b:free',
+    'nousresearch/hermes-3-llama-3.1-405b:free',
+];
+
+function resolveModelTier(model?: string): string {
+    if (!model) return 'priyx-ultra';
+    const m = model.toLowerCase();
+    if (m === 'priyx-lite' || m === 'lite') return 'priyx-lite';
+    if (m === 'priyx-ultra' || m === 'ultra') return 'priyx-ultra';
+    if (m === 'priyx-max' || m === 'max') return 'priyx-max';
+    return model; // specific model ID passed through
+}
+
+function pickRandomModel(tier: string): string {
+    if (tier === 'priyx-lite') {
+        return PRIYX_LITE_MODELS[Math.floor(Math.random() * PRIYX_LITE_MODELS.length)];
+    }
+    if (tier === 'priyx-max') {
+        // 50/50 chance: OpenRouter premium or NVIDIA
+        const useNvidia = Math.random() < 0.5 && config.nvidia_models && config.nvidia_models.length > 0;
+        if (useNvidia && config.nvidia_models) {
+            return config.nvidia_models[Math.floor(Math.random() * config.nvidia_models.length)];
+        }
+        return PRIYX_MAX_OPENROUTER[Math.floor(Math.random() * PRIYX_MAX_OPENROUTER.length)];
+    }
+    // Ultra or specific model
+    if (tier === 'priyx-ultra') {
+        return PRIYX_ULTRA_MODELS[Math.floor(Math.random() * PRIYX_ULTRA_MODELS.length)];
+    }
+    return tier; // pass through specific model ID
+}
+
 /**
  * Model-specific context limits (in characters, approximation for tokens)
  * We aim for ~100k characters of context for intelligence to be safe and efficient.
+ * Tier names map to their best model's limit.
  */
 const MODEL_CHAR_LIMITS: { [key: string]: number } = {
+    'priyx-lite': 131072,
+    'priyx-ultra': 1000000,
+    'priyx-max': 131072,
     'qwen/qwen3-coder:free': 1000000,
     'openai/gpt-oss-120b:free': 131072,
     'google/gemma-4-31b-it:free': 262144,
@@ -47,7 +103,9 @@ export const generateCode = async (
     images?: Array<{ data: string; mimeType: string }>,
     fileContext?: Array<{ path: string; content: string }>
 ): Promise<CodeGenerationResult> => {
-    const selectedModel = model || config.ai_models?.[0] || "openai/gpt-3.5-turbo";
+    // Resolve tier and pick actual model
+    const tier = resolveModelTier(model);
+    const selectedModel = pickRandomModel(tier);
 
     // Free fallback models ranked by coding ability
     const FREE_FALLBACK_MODELS = [
