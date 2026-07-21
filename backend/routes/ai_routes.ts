@@ -39,7 +39,7 @@ router.post('/enhance-prompt', asyncHandler(async (req, res) => {
  */
 router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res) => {
     console.log('[AI Routes] /generate called');
-    const { prompt, model, language, sessionId: existingSessionId, enableWebSearch, images, fileContext } = req.body;
+    const { prompt, model, language, sessionId: existingSessionId, enableWebSearch, images, fileContext, chatMode } = req.body;
 
     if (!prompt) {
         return res.status(400).json({ error: "Prompt is required" });
@@ -52,7 +52,8 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
 
     const user = req.auth.user;
 
-    if (user.credits < 20) {
+    // Chat mode is free, code generation requires credits
+    if (!chatMode && user.credits < 20) {
         return res.status(402).json({ error: "Insufficient credits. Code generation requires 20 credits. Buy more credits to continue." });
     }
 
@@ -66,6 +67,8 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
     let rawResponse = '';
     let modelUsed = model || 'unknown';
     let creditsRemaining = user.credits;
+    let searchQueries: string[] = [];
+    let searchSources: { title: string; url: string }[] = [];
 
     try {
         let history: Array<{ role: string; content: string }> = [];
@@ -83,40 +86,84 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
             }
         }
 
-        const result = await generateCode(prompt, model, context, skipDocs, enableWebSearch === true, history, platform, language, images, fileContext);
-        files = result.files || [];
-        rawResponse = result.rawResponse || '';
-        modelUsed = result.model || model;
+        if (chatMode) {
+            // Chat mode: conversational response, no code generation
+            const tier = model || 'priyx-ultra';
+            const selectedModel = tier;
+            const isNvidia = selectedModel.startsWith('nvidia/');
+            const endpoint = isNvidia ? "https://integrate.api.nvidia.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+            const apiKey = isNvidia ? process.env.NVIDIA_API_KEY : process.env.OPENROUTER_API_KEY;
 
-        console.log(`[AI Routes] /generate AI completed - ${files.length} files, model: ${modelUsed}`);
+            const chatMessages = [
+                { role: 'system', content: 'You are Priyx, a friendly and knowledgeable AI assistant. You help users with coding, Minecraft plugins, Hytale, Discord bots, and general programming questions. Be conversational, helpful, and concise. Do not generate code files - just chat naturally. If the user asks you to create something, explain what you would do and mention that they should switch to Code mode for actual file generation.' },
+                ...history.slice(-10),
+                { role: 'user', content: prompt }
+            ];
+
+            try {
+                const response = await axios.post(endpoint, {
+                    model: selectedModel,
+                    messages: chatMessages,
+                    temperature: 0.7,
+                    max_tokens: 2048
+                }, {
+                    headers: {
+                        "Authorization": `Bearer ${apiKey}`,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://velix.snapgrids.store",
+                        "X-Title": "Velix"
+                    },
+                    timeout: 60000
+                });
+
+                rawResponse = response.data.choices[0]?.message?.content || "I'm here to help! What would you like to know?";
+                modelUsed = response.data.model || selectedModel;
+            } catch (chatErr: any) {
+                console.error('[AI Routes] Chat mode error:', chatErr.message);
+                rawResponse = "I'm having trouble connecting right now. Please try again in a moment.";
+            }
+        } else {
+            const result = await generateCode(prompt, model, context, skipDocs, enableWebSearch === true, history, platform, language, images, fileContext);
+            files = result.files || [];
+            rawResponse = result.rawResponse || '';
+            modelUsed = result.model || model;
+            searchQueries = result.searchQueries || [];
+            searchSources = result.searchSources || [];
+        }
+
+        console.log(`[AI Routes] /generate AI completed - ${files.length} files, model: ${modelUsed}${chatMode ? ' (chat mode)' : ''}`);
     } catch (aiError: any) {
         console.error('[AI Routes] AI generation failed:', aiError.message);
         return res.status(500).json({ error: `AI generation failed: ${aiError.message || 'Unknown error'}` });
     }
 
-    // Write files to sandbox (non-critical, don't fail over this)
-    try {
-        const sandbox = new SandboxContext(sessionId);
-        for (const file of files) {
-            sandbox.writeFile(file.path, file.content);
+    // Write files to sandbox (non-critical, don't fail over this) — skip for chat mode
+    if (!chatMode && files.length > 0) {
+        try {
+            const sandbox = new SandboxContext(sessionId);
+            for (const file of files) {
+                sandbox.writeFile(file.path, file.content);
+            }
+            
+            // Write project metadata file
+            const category = req.body.category || (platform === 'discord' ? 'bots' : 'plugins');
+            sandbox.writeFile('.project.json', JSON.stringify({
+                platform,
+                category,
+                language: language || 'java'
+            }, null, 4));
+        } catch (e: any) {
+            console.warn('[AI Routes] Sandbox write failed:', e.message);
         }
-        
-        // Write project metadata file
-        const category = req.body.category || (platform === 'discord' ? 'bots' : 'plugins');
-        sandbox.writeFile('.project.json', JSON.stringify({
-            platform,
-            category,
-            language: language || 'java'
-        }, null, 4));
-    } catch (e: any) {
-        console.warn('[AI Routes] Sandbox write failed:', e.message);
     }
 
-    // Deduct credits (non-critical)
-    try {
-        await dbService.deductCredits(req.auth!.userId, 20, 'generation', `Generated code for ${plugin?.name || "Project"}`);
-    } catch (deductErr: any) {
-        console.error('[AI Routes] deductCredits failed:', deductErr.message);
+    // Deduct credits (non-critical) — skip for chat mode
+    if (!chatMode) {
+        try {
+            await dbService.deductCredits(req.auth!.userId, 20, 'generation', `Generated code for ${plugin?.name || "Project"}`);
+        } catch (deductErr: any) {
+            console.error('[AI Routes] deductCredits failed:', deductErr.message);
+        }
     }
 
     // Get updated user (non-critical)
@@ -210,9 +257,12 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
         sessionId,
         files,
         model: modelUsed,
-        rawResponse: rawResponse.slice(0, 2000),
-        creditsUsed: 20,
-        creditsRemaining
+        rawResponse: rawResponse.slice(0, chatMode ? 4000 : 2000),
+        creditsUsed: chatMode ? 0 : 20,
+        creditsRemaining,
+        searchQueries: searchQueries.length > 0 ? searchQueries : undefined,
+        searchSources: searchSources.length > 0 ? searchSources : undefined,
+        chatMode: chatMode || false
     };
     console.log(`[AI Routes] /generate sending response - files: ${files.length}, payload size: ~${JSON.stringify(responsePayload).length} bytes`);
     res.json(responsePayload);

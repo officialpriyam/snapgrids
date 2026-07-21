@@ -14,6 +14,8 @@ export interface CodeGenerationResult {
     files: GeneratedFile[];
     rawResponse: string;
     model: string;
+    searchQueries?: string[];
+    searchSources?: { title: string; url: string }[];
 }
 
 // Priyx tier model pools
@@ -106,6 +108,10 @@ export const generateCode = async (
     // Resolve tier and pick actual model
     const tier = resolveModelTier(model);
     const selectedModel = pickRandomModel(tier);
+
+    // Track web search queries and sources for frontend display
+    const searchQueries: string[] = [];
+    const searchSources: { title: string; url: string }[] = [];
 
     // Free fallback models ranked by coding ability
     const FREE_FALLBACK_MODELS = [
@@ -664,6 +670,10 @@ ${cappedSkills}`;
 
                             if (query) {
                                 const searchResults = await WebSearchService.searchWeb(query);
+                                // Track search for frontend display
+                                searchQueries.push(query);
+                                searchResults.forEach(r => searchSources.push({ title: r.title, url: r.url }));
+
                                 const searchContext = searchResults.length > 0
                                     ? `Search Results for "${query}":\n` + searchResults.map(r => `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet}\n---`).join('\n')
                                     : `No search results found for "${query}".`;
@@ -706,6 +716,10 @@ ${cappedSkills}`;
                     const searchQuery = keywords.slice(0, 4).join(' ');
                     console.log(`[AIService] Fallback pre-search executing for query: "${searchQuery}"`);
                     const searchResults = await WebSearchService.searchWeb(searchQuery);
+
+                    // Track search for frontend display
+                    searchQueries.push(searchQuery);
+                    searchResults.forEach(r => searchSources.push({ title: r.title, url: r.url }));
 
                     if (searchResults.length > 0) {
                         const searchContext = `\n=== ADDITIONAL SEARCH CONTEXT ===\n${searchResults.map(r => `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet}\n---`).join('\n')}\n`;
@@ -762,7 +776,9 @@ ${cappedSkills}`;
         return {
             files,
             rawResponse,
-            model: response.data.model
+            model: response.data.model,
+            searchQueries: searchQueries.length > 0 ? searchQueries : undefined,
+            searchSources: searchSources.length > 0 ? searchSources : undefined
         };
     };
 
