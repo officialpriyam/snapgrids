@@ -6,8 +6,7 @@ import struct
 import io
 import time
 import requests
-import nbtlib
-from nbtlib import Byte, Short, Int, String, List, Compound, ByteArray, IntArray
+from utils.nbt_writer import write_schematic
 from utils.block_palette import find_closest_block, can_float, BLOCK_PALETTE
 
 NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
@@ -62,63 +61,9 @@ def generate_schematic(prompt, size=48, mode='generate', output_dir='output'):
     }
 
 
-def _write_varint(buf, value):
-    while True:
-        byte = value & 0x7F
-        value >>= 7
-        if value != 0:
-            byte |= 0x80
-        buf.append(byte)
-        if value == 0:
-            break
-
-
 def _write_schem_file(blocks, size, file_id, output_dir):
-    block_map = {}
-    for b in blocks:
-        block_map[(b['x'], b['y'], b['z'])] = b['id']
-
-    palette = {}
-    next_idx = 0
-    for b in blocks:
-        bid = b['id']
-        if bid not in palette:
-            palette[bid] = next_idx
-            next_idx += 1
-    if 'minecraft:air' not in palette:
-        palette['minecraft:air'] = next_idx
-
-    block_data = bytearray()
-    for y in range(size):
-        for z in range(size):
-            for x in range(size):
-                block_id = block_map.get((x, y, z), 'minecraft:air')
-                idx = palette.get(block_id, 0)
-                _write_varint(block_data, idx)
-
-    palette_nbt = Compound({
-        String(k): Int(v) for k, v in palette.items()
-    })
-
-    schematic = Compound({
-        'Version': Int(2),
-        'DataVersion': Int(3955),
-        'Width': Short(size),
-        'Height': Short(size),
-        'Length': Short(size),
-        'Offset': IntArray([0, 0, 0]),
-        'Palette': palette_nbt,
-        'PaletteMax': Int(len(palette)),
-        'BlockData': ByteArray(block_data),
-        'BlockEntities': List[Compound](),
-    })
-
-    root = Compound({'Schematic': schematic})
-    nbt_file = nbtlib.File(root)
-
     out_path = os.path.join(output_dir, f'schematic_{file_id}.schem')
-    nbt_file.save(out_path, gzipped=True)
-
+    write_schematic(blocks, size, out_path)
     return out_path
 
 
@@ -146,101 +91,103 @@ def _procedural_fallback(prompt, size):
 
 
 def _build_house(size):
+    """Build a detailed Minecraft cottage with proper layering."""
     blocks = []
     s = max(12, min(size, 48))
     w = s - 2
 
+    # Foundation
+    for x in range(-1, w + 3):
+        for z in range(-1, w + 3):
+            blocks.append({'x': x, 'y': -1, 'z': z, 'id': 'minecraft:cobblestone'})
+            blocks.append({'x': x, 'y': -2, 'z': z, 'id': 'minecraft:stone'})
+
+    # Floor
     for x in range(0, w + 2):
         for z in range(0, w + 2):
-            blocks.append({'x': x, 'y': 0, 'z': z, 'id': 'minecraft:oak_planks'})
+            blocks.append({'x': x, 'y': 0, 'z': z, 'id': 'minecraft:spruce_planks'})
             blocks.append({'x': x, 'y': 1, 'z': z, 'id': 'minecraft:oak_planks'})
 
-    for y in range(2, 8):
+    # Walls (2 blocks thick for depth)
+    for y in range(2, 9):
+        # Outer wall
         for x in [0, w + 1]:
             for z in range(0, w + 2):
                 blocks.append({'x': x, 'y': y, 'z': z, 'id': 'minecraft:spruce_planks'})
         for z in [0, w + 1]:
             for x in range(0, w + 2):
                 blocks.append({'x': x, 'y': y, 'z': z, 'id': 'minecraft:spruce_planks'})
+        # Inner wall detail
+        for x in [1, w]:
+            for z in range(1, w + 1):
+                if y <= 3:
+                    blocks.append({'x': x, 'y': y, 'z': z, 'id': 'minecraft:stripped_spruce_log'})
 
-    for y in range(2, 9):
+    # Corner logs
+    for y in range(2, 10):
         for corner in [(0, 0), (w + 1, 0), (0, w + 1), (w + 1, w + 1)]:
             blocks.append({'x': corner[0], 'y': y, 'z': corner[1], 'id': 'minecraft:spruce_log'})
 
-    for x in range(0, w + 2):
-        for z in range(0, w + 2):
-            blocks.append({'x': x, 'y': 8, 'z': z, 'id': 'minecraft:spruce_planks'})
-        for z in range(1, w + 1):
-            blocks.append({'x': x, 'y': 9, 'z': z, 'id': 'minecraft:spruce_slab'})
-    for z in range(0, w + 2):
-        blocks.append({'x': 0, 'y': 9, 'z': z, 'id': 'minecraft:spruce_slab'})
-        blocks.append({'x': w + 1, 'y': 9, 'z': z, 'id': 'minecraft:spruce_slab'})
+    # Windows (glass panes at regular intervals)
+    for y in [4, 5, 6]:
+        for x in range(3, w - 1, 4):
+            blocks.append({'x': x, 'y': y, 'z': 0, 'id': 'minecraft:glass_pane'})
+            blocks.append({'x': x, 'y': y, 'z': w + 1, 'id': 'minecraft:glass_pane'})
+        for z in range(3, w - 1, 4):
+            blocks.append({'x': 0, 'y': y, 'z': z, 'id': 'minecraft:glass_pane'})
+            blocks.append({'x': w + 1, 'y': y, 'z': z, 'id': 'minecraft:glass_pane'})
 
-    for y in [3, 4, 5]:
-        for x in range(3, w - 1):
-            blocks.append({'x': x, 'y': y, 'z': 0, 'id': 'minecraft:glass'})
-            blocks.append({'x': x, 'y': y, 'z': w + 1, 'id': 'minecraft:glass'})
-        for z in range(3, w - 1):
-            blocks.append({'x': 0, 'y': y, 'z': z, 'id': 'minecraft:glass'})
-            blocks.append({'x': w + 1, 'y': y, 'z': z, 'id': 'minecraft:glass'})
-
-    for x in range(0, w + 2):
-        for z in range(0, w + 2):
-            blocks.append({'x': x, 'y': 10, 'z': z, 'id': 'minecraft:oak_slab'})
-            if 2 <= x <= w - 1 and 2 <= z <= w - 1:
-                blocks.append({'x': x, 'y': 11, 'z': z, 'id': 'minecraft:oak_slab'})
-                if 3 <= x <= w - 2 and 3 <= z <= w - 2:
-                    blocks.append({'x': x, 'y': 12, 'z': z, 'id': 'minecraft:oak_slab'})
-                    if 4 <= x <= w - 3 and 4 <= z <= w - 3:
-                        blocks.append({'x': x, 'y': 13, 'z': z, 'id': 'minecraft:oak_slab'})
-
+    # Door opening
     mid = (w + 1) // 2
     for y in range(2, 5):
         blocks.append({'x': mid, 'y': y, 'z': 0, 'id': 'minecraft:air'})
         blocks.append({'x': mid + 1, 'y': y, 'z': 0, 'id': 'minecraft:air'})
-    blocks.append({'x': mid, 'y': 2, 'z': -1, 'id': 'minecraft:air'})
-    blocks.append({'x': mid + 1, 'y': 2, 'z': -1, 'id': 'minecraft:air'})
 
-    for x in range(1, w + 1):
-        for z in range(1, w + 1):
-            blocks.append({'x': x, 'y': 2, 'z': z, 'id': 'minecraft:stone_bricks'})
-            blocks.append({'x': x, 'y': 3, 'z': z, 'id': 'minecraft:mossy_stone_bricks'})
-            if 2 <= x <= w - 1 and 2 <= z <= w - 1:
-                blocks.append({'x': x, 'y': 4, 'z': z, 'id': 'minecraft:cobblestone'})
-                if 3 <= x <= w - 2 and 3 <= z <= w - 2:
-                    blocks.append({'x': x, 'y': 5, 'z': z, 'id': 'minecraft:gravel'})
-                    if 4 <= x <= w - 3 and 4 <= z <= w - 3:
-                        blocks.append({'x': x, 'y': 6, 'z': z, 'id': 'minecraft:andesite'})
+    # Roof (slab-based for clean look)
+    for x in range(-1, w + 3):
+        for z in range(-1, w + 3):
+            blocks.append({'x': x, 'y': 9, 'z': z, 'id': 'minecraft:spruce_slab'})
+            dist_x = min(x, w + 1 - x)
+            dist_z = min(z, w + 1 - z)
+            min_dist = min(dist_x, dist_z)
+            if min_dist >= 2:
+                blocks.append({'x': x, 'y': 10, 'z': z, 'id': 'minecraft:spruce_slab'})
+            if min_dist >= 3:
+                blocks.append({'x': x, 'y': 11, 'z': z, 'id': 'minecraft:spruce_slab'})
+            if min_dist >= 4:
+                blocks.append({'x': x, 'y': 12, 'z': z, 'id': 'minecraft:spruce_slab'})
 
-    for dx in range(-3, 4):
-        for dz in range(-3, 4):
-            bx, bz = mid + dx, mid + dz
-            if 0 <= bx <= w + 1 and 0 <= bz <= w + 1:
-                blocks.append({'x': bx, 'y': -1, 'z': bz, 'id': 'minecraft:grass_block'})
-                if abs(dx) <= 1 and abs(dz) <= 1:
-                    blocks.append({'x': bx, 'y': -2, 'z': bz, 'id': 'minecraft:dirt'})
+    # Interior furniture
+    blocks.append({'x': 2, 'y': 2, 'z': 2, 'id': 'minecraft:crafting_table'})
+    blocks.append({'x': 3, 'y': 2, 'z': 2, 'id': 'minecraft:furnace'})
+    blocks.append({'x': w - 1, 'y': 2, 'z': 2, 'id': 'minecraft:chest'})
+    blocks.append({'x': w - 2, 'y': 2, 'z': 2, 'id': 'minecraft:barrel'})
+    blocks.append({'x': mid, 'y': 2, 'z': mid, 'id': 'minecraft:crafting_table'})
+    blocks.append({'x': mid + 1, 'y': 2, 'z': mid, 'id': 'minecraft:anvil'})
 
-    blocks.append({'x': mid, 'y': 3, 'z': 3, 'id': 'minecraft:crafting_table'})
-    blocks.append({'x': mid + 1, 'y': 3, 'z': 3, 'id': 'minecraft:furnace'})
-    blocks.append({'x': mid, 'y': 3, 'z': w - 2, 'id': 'minecraft:chest'})
-    blocks.append({'x': mid + 1, 'y': 3, 'z': w - 2, 'id': 'minecraft:enchanting_table'})
-    blocks.append({'x': mid, 'y': 7, 'z': mid, 'id': 'minecraft:lantern'})
-    blocks.append({'x': mid - 1, 'y': 7, 'z': mid, 'id': 'minecraft:torch'})
-    blocks.append({'x': mid + 1, 'y': 7, 'z': mid, 'id': 'minecraft:torch'})
-    blocks.append({'x': mid, 'y': 3, 'z': mid - 1, 'id': 'minecraft:carpet'})
-    blocks.append({'x': mid, 'y': 3, 'z': mid + 1, 'id': 'minecraft:carpet'})
-    blocks.append({'x': mid + 1, 'y': 3, 'z': mid - 1, 'id': 'minecraft:carpet'})
-    blocks.append({'x': mid + 1, 'y': 3, 'z': mid + 1, 'id': 'minecraft:carpet'})
+    # Lighting
+    blocks.append({'x': mid, 'y': 8, 'z': mid, 'id': 'minecraft:lantern'})
+    blocks.append({'x': 2, 'y': 8, 'z': 2, 'id': 'minecraft:lantern'})
+    blocks.append({'x': w - 1, 'y': 8, 'z': w - 1, 'id': 'minecraft:lantern'})
 
-    blocks.append({'x': mid, 'y': 2, 'z': w + 2, 'id': 'minecraft:campfire'})
-    blocks.append({'x': mid + 1, 'y': 2, 'z': w + 2, 'id': 'minecraft:cauldron'})
-    for dx in range(-1, 2):
-        blocks.append({'x': mid + dx, 'y': -1, 'z': w + 2, 'id': 'minecraft:cobblestone'})
-        blocks.append({'x': mid + dx, 'y': -1, 'z': w + 3, 'id': 'minecraft:cobblestone'})
+    # Carpet
+    for x in range(mid - 1, mid + 2):
+        for z in range(mid - 1, mid + 2):
+            blocks.append({'x': x, 'y': 2, 'z': z, 'id': 'minecraft:red_carpet'})
 
-    for x in range(-1, w + 4):
-        blocks.append({'x': x, 'y': -1, 'z': -1, 'id': 'minecraft:dirt'})
-        blocks.append({'x': x, 'y': -1, 'z': 0, 'id': 'minecraft:dirt'})
+    # Outside path
+    for x in range(mid - 1, mid + 2):
+        blocks.append({'x': x, 'y': 0, 'z': -1, 'id': 'minecraft:gravel'})
+        blocks.append({'x': x, 'y': 0, 'z': -2, 'id': 'minecraft:gravel'})
+        blocks.append({'x': x, 'y': 0, 'z': -3, 'id': 'minecraft:cobblestone'})
+
+    # Garden
+    for x in range(-2, w + 4):
+        blocks.append({'x': x, 'y': 0, 'z': -1, 'id': 'minecraft:grass_block'})
+        if x % 3 == 0:
+            blocks.append({'x': x, 'y': 1, 'z': -1, 'id': 'minecraft:poppy'})
+        elif x % 3 == 1:
+            blocks.append({'x': x, 'y': 1, 'z': -1, 'id': 'minecraft:dandelion'})
 
     return blocks
 
@@ -479,29 +426,38 @@ def _build_tree(size):
 def _llm_voxel_approach(prompt, size):
     block_list = '\n'.join(sorted(BLOCK_PALETTE.keys()))
 
-    llm_prompt = f"""You are a Minecraft schematic generator. Generate a list of blocks for this structure.
+    llm_prompt = f"""You are an expert Minecraft builder. Generate a detailed block-by-block schematic for this structure.
 
 DESCRIPTION: {prompt}
 MAX SIZE: {size}x{size}x{size}
 
-VALID BLOCK IDS (use ONLY these):
+VALID BLOCK IDS (use ONLY these exact strings):
 {block_list}
 
 OUTPUT FORMAT (JSON only, no commentary):
 {{
   "blocks": [
     {{"x": 0, "y": 0, "z": 0, "id": "minecraft:stone_bricks"}},
-    {{"x": 0, "y": 1, "z": 0, "id": "minecraft:oak_planks"}}
+    {{"x": 1, "y": 0, "z": 0, "id": "minecraft:cobblestone"}}
   ]
 }}
 
-RULES:
+CRITICAL RULES:
 - x, z range: 0 to {size-1}
 - y range: 0 to {size-1}
-- Every block id MUST be from the list above
-- Build a complete, recognizable structure with at least 100 blocks
-- Include foundation, walls, roof, floor, and details
-- Output ONLY valid JSON"""
+- Every block id MUST be from the list above exactly
+- Build a COMPLETE, DETAILED structure with at least 200-500 blocks
+- Include these layers:
+  1. FOUNDATION: solid base (stone, cobblestone, or material-appropriate)
+  2. FLOOR: interior flooring (planks, stone bricks, etc.)
+  3. WALLS: 2-3 blocks thick walls with windows and doors
+  4. ROOF: sloped or flat roof with overhang
+  5. DETAILS: furniture, lighting (torches, lanterns), decoration
+  6. EXTERIOR: path, garden, or terrain around the structure
+- Use variety: mix similar blocks (stone_bricks + mossy_stone_bricks + cobblestone)
+- Add depth: walls should not be flat single-layer
+- Include door openings (air blocks) and window openings (glass blocks)
+- Output ONLY valid JSON with complete block list"""
 
     raw_json = _call_llm(llm_prompt)
 
