@@ -88,7 +88,7 @@ def generate_blueprint(user_request: str, seed: int | None = None) -> Dict[str, 
         user_prompt=user_prompt,
         model=BLUEPRINT_MODEL,
         temperature=0.4,
-        max_tokens=512,
+        max_tokens=2048,
     )
 
     blueprint = validate_blueprint(blueprint)

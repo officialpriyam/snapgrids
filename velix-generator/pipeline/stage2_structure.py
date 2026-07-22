@@ -95,6 +95,40 @@ def generate_structure(blueprint: Dict[str, Any]) -> VoxelGrid:
     if "bay_window" in features:
         _build_bay_window(grid, style, 0, y_base + floor_h, z_max // 2, x_max)
 
+    if "courtyard" in features:
+        _build_courtyard(grid, style, 0, y_base, 0, x_max, z_max)
+
+    if "garden" in features:
+        _build_garden(grid, style, 0, y_base, 0, x_max, z_max)
+
+    if "gate" in features:
+        _build_gate(grid, style, 0, y_base, 0, x_max, z_max)
+
+    if "wall" in features:
+        _build_perimeter_wall(grid, style, 0, y_base, 0, x_max, z_max)
+
+    if "fountain" in features:
+        _build_fountain(grid, style, x_max // 2, y_base, z_max // 2)
+
+    if "chapel" in features:
+        _build_chapel_addon(grid, style, 0, y_base, 0, x_max, z_max)
+
+    if "cellar" in features:
+        _build_cellar(grid, style, 0, y_base, 0, x_max, z_max)
+
+    if "pillar" in features:
+        _build_interior_pillars(grid, style, 0, y_base, 0, x_max, z_max, y_top)
+
+    if "dungeon" in features:
+        _build_dungeon(grid, style, 0, y_base, 0, x_max, z_max)
+
+    if "attic" in features:
+        _build_attic(grid, style, 0, y_top, 0, x_max, z_max)
+
+    # === Interior detail (always) ===
+    _build_interior_furniture(grid, style, 0, y_base, 0, x_max, z_max, floor_h)
+    _build_interior_lighting(grid, style, 0, y_base, 0, x_max, z_max, y_top)
+
     logger.info(f"Stage 2: Structure complete — {len(grid)} blocks")
     return grid
 
@@ -357,3 +391,243 @@ def _build_bay_window(grid: VoxelGrid, style: str, x1: int, y: int,
     grid[(bx + 1, y + 1, z_center)] = window_b
 
     logger.info("Stage 2: Added bay window")
+
+
+def _build_courtyard(grid: VoxelGrid, style: str, x1: int, y_base: int, z1: int,
+                     x2: int, z2: int) -> None:
+    """Add a walled courtyard extending from the south face."""
+    wall_b = get_block(style, "wall", "primary")
+    floor_b = get_block(style, "floor")
+    width = x2 - x1 + 1
+    courtyard_depth = max(4, width // 2)
+
+    cz1 = z2 + 1
+    cz2 = z2 + courtyard_depth
+
+    fill_floor(grid, x1, y_base, cz1, x2, cz2, floor_b)
+    fill_walls(grid, x1, y_base + 1, cz1, x2, y_base + 3, cz2, wall_b)
+    for x in range(x1, x2 + 1):
+        for y in range(y_base + 1, y_base + 4):
+            grid[(x, y, z2)] = "minecraft:air"
+    logger.info(f"Stage 2: Added courtyard ({width}x{courtyard_depth})")
+
+
+def _build_garden(grid: VoxelGrid, style: str, x1: int, y_base: int, z1: int,
+                  x2: int, z2: int) -> None:
+    """Add a garden with paths and greenery on the south side."""
+    path_b = "minecraft:gravel"
+    grass_b = "minecraft:grass_block"
+    flower_blocks = ["minecraft:poppy", "minecraft:dandelion", "minecraft:blue_orchid",
+                     "minecraft:azure_bluet", "minecraft:red_tulip"]
+
+    gz1 = z2 + 1
+    gz2 = z2 + 5
+
+    for x in range(x1 - 1, x2 + 2):
+        for z in range(gz1, gz2 + 1):
+            grid[(x, y_base, z)] = grass_b
+
+    mid_x = (x1 + x2) // 2
+    for z in range(gz1, gz2 + 1):
+        grid[(mid_x, y_base, z)] = path_b
+        if mid_x + 1 <= x2 + 1:
+            grid[(mid_x + 1, y_base, z)] = path_b
+
+    for x in range(x1, x2 + 1, 2):
+        for z in [gz1, gz2]:
+            grid[(x, y_base + 1, z)] = "minecraft:oak_fence"
+        grid[(x, y_base + 1, gz1)] = flower_blocks[(x - x1) % len(flower_blocks)]
+
+    logger.info("Stage 2: Added garden")
+
+
+def _build_gate(grid: VoxelGrid, style: str, x1: int, y_base: int, z1: int,
+                x2: int, z2: int) -> None:
+    """Add an arched gate on the south face."""
+    gate_b = get_block(style, "wall", "primary")
+    mid_x = (x1 + x2) // 2
+
+    for y in range(y_base + 1, y_base + 4):
+        grid[(mid_x, y, z2)] = "minecraft:air"
+        grid[(mid_x + 1, y, z2)] = "minecraft:air"
+
+    for y in range(y_base + 1, y_base + 5):
+        grid[(mid_x - 1, y, z2)] = gate_b
+        grid[(mid_x + 2, y, z2)] = gate_b
+
+    grid[(mid_x, y_base + 4, z2)] = gate_b
+    grid[(mid_x + 1, y_base + 4, z2)] = gate_b
+
+    stair_b = get_block(style, "stair")
+    grid[(mid_x - 1, y_base + 5, z2)] = stair_b
+    grid[(mid_x + 2, y_base + 5, z2)] = stair_b
+
+    logger.info("Stage 2: Added gate")
+
+
+def _build_perimeter_wall(grid: VoxelGrid, style: str, x1: int, y_base: int, z1: int,
+                          x2: int, z2: int) -> None:
+    """Add a low perimeter wall around the structure."""
+    wall_b = get_block(style, "wall", "secondary")
+    fence_b = get_block(style, "pillar")
+
+    offset = 4
+    wx1 = x1 - offset
+    wz1 = z1 - offset
+    wx2 = x2 + offset
+    wz2 = z2 + offset
+
+    for x in range(wx1, wx2 + 1):
+        grid[(x, y_base + 1, wz1)] = wall_b
+        grid[(x, y_base + 2, wz1)] = fence_b
+        grid[(x, y_base + 1, wz2)] = wall_b
+        grid[(x, y_base + 2, wz2)] = fence_b
+    for z in range(wz1 + 1, wz2):
+        grid[(wx1, y_base + 1, z)] = wall_b
+        grid[(wx1, y_base + 2, z)] = fence_b
+        grid[(wx2, y_base + 1, z)] = wall_b
+        grid[(wx2, y_base + 2, z)] = fence_b
+
+    logger.info("Stage 2: Added perimeter wall")
+
+
+def _build_fountain(grid: VoxelGrid, style: str, cx: int, y_base: int, cz: int) -> None:
+    """Add a decorative fountain."""
+    stone_b = "minecraft:stone_bricks"
+    water_b = "minecraft:water"
+    slab_b = "minecraft:stone_brick_slab"
+
+    for dx in range(-2, 3):
+        for dz in range(-2, 3):
+            if abs(dx) == 2 or abs(dz) == 2:
+                grid[(cx + dx, y_base, cz + dz)] = stone_b
+            elif dx == 0 and dz == 0:
+                grid[(cx + dx, y_base, cz + dz)] = water_b
+            else:
+                grid[(cx + dx, y_base, cz + dz)] = slab_b
+
+    grid[(cx, y_base + 1, cz)] = "minecraft:stone_brick_wall"
+    grid[(cx, y_base + 2, cz)] = water_b
+
+    logger.info("Stage 2: Added fountain")
+
+
+def _build_chapel_addon(grid: VoxelGrid, style: str, x1: int, y_base: int, z1: int,
+                        x2: int, z2: int) -> None:
+    """Add a small chapel wing attached to the building."""
+    wall_b = get_block(style, "wall", "primary")
+    floor_b = get_block(style, "floor")
+    roof_b = get_block(style, "roof", "block")
+
+    cw = max(4, (x2 - x1 + 1) // 3)
+    cx1 = x2 + 1
+    cx2 = cx1 + cw - 1
+    cz1 = z1 + (z2 - z1) // 4
+    cz2 = z2 - (z2 - z1) // 4
+    ch = 5
+
+    hollow_cuboid(grid, cx1, y_base, cz1, cx2, y_base + ch, cz2, wall_b)
+    fill_floor(grid, cx1, y_base, cz1, cx2, cz2, floor_b)
+    for z in range(cz1, cz2 + 1):
+        for y in range(y_base + 1, y_base + ch):
+            grid[(x2, y, z)] = "minecraft:air"
+    pitched_roof(grid, cx1, y_base + ch + 1, cz1, cx2, cz2, roof_b, "x")
+
+    grid[((cx1 + cx2) // 2), y_base + 1, cz1] = "minecraft:glass_pane"
+
+    logger.info(f"Stage 2: Added chapel ({cw}x{cz2 - cz1 + 1})")
+
+
+def _build_cellar(grid: VoxelGrid, style: str, x1: int, y_base: int, z1: int,
+                  x2: int, z2: int) -> None:
+    """Add a cellar below the main floor."""
+    cellar_b = "minecraft:cobblestone"
+    fill_cuboid(grid, x1 + 1, y_base - 2, z1 + 1, x2 - 1, y_base - 1, z2 - 1, cellar_b)
+    fill_cuboid(grid, x1 + 1, y_base - 2, z1 + 1, x2 - 1, y_base - 1, z2 - 1, "minecraft:air")
+    fill_cuboid(grid, x1 + 1, y_base - 2, z1 + 1, x2 - 1, y_base - 1, z2 - 1, cellar_b,
+                replace_only={"minecraft:air"})
+    hollow_cuboid(grid, x1 + 1, y_base - 2, z1 + 1, x2 - 1, y_base - 1, z2 - 1, cellar_b)
+    grid[((x1 + x2) // 2), y_base - 1, z1] = "minecraft:air"
+    grid[((x1 + x2) // 2), y_base, z1] = "minecraft:ladder"
+    grid[((x1 + x2) // 2), y_base - 1, z1] = "minecraft:ladder"
+
+    logger.info("Stage 2: Added cellar")
+
+
+def _build_interior_pillars(grid: VoxelGrid, style: str, x1: int, y_base: int, z1: int,
+                            x2: int, z2: int, y_top: int) -> None:
+    """Add interior support pillars."""
+    pillar_b = get_block(style, "pillar")
+    width = x2 - x1 + 1
+    depth = z2 - z1 + 1
+    spacing = max(4, min(6, width // 2))
+
+    for x in range(x1 + spacing, x2, spacing):
+        for y in range(y_base + 1, y_top):
+            grid[(x, y, z1 + 1)] = pillar_b
+            grid[(x, y, z2 - 1)] = pillar_b
+
+    logger.info("Stage 2: Added interior pillars")
+
+
+def _build_dungeon(grid: VoxelGrid, style: str, x1: int, y_base: int, z1: int,
+                   x2: int, z2: int) -> None:
+    """Add dungeon cells below the structure."""
+    cell_b = "minecraft:cobblestone"
+    bar_b = "minecraft:iron_bars"
+    cell_size = 3
+
+    for cx in range(x1 + 1, x2 - 1, cell_size + 1):
+        for cz in range(z1 + 1, z2 - 1, cell_size + 1):
+            fill_cuboid(grid, cx, y_base - 3, cz, cx + cell_size - 1, y_base - 1, cz + cell_size - 1, cell_b)
+            fill_cuboid(grid, cx + 1, y_base - 2, cz + 1, cx + cell_size - 2, y_base - 1, cz + cell_size - 2, "minecraft:air")
+            grid[(cx + cell_size // 2, y_base - 2, cz)] = bar_b
+            grid[(cx + cell_size // 2, y_base - 1, cz)] = bar_b
+
+    logger.info("Stage 2: Added dungeon")
+
+
+def _build_attic(grid: VoxelGrid, style: str, x1: int, y_top: int, z1: int,
+                 x2: int, z2: int) -> None:
+    """Add an attic floor above the top floor."""
+    floor_b = get_block(style, "floor")
+    fill_floor(grid, x1, y_top + 1, z1, x2, z2, floor_b)
+    logger.info("Stage 2: Added attic")
+
+
+def _build_interior_furniture(grid: VoxelGrid, style: str, x1: int, y_base: int,
+                              z1: int, x2: int, z2: int, floor_h: int) -> None:
+    """Add basic furniture on each floor."""
+    mid_x = (x1 + x2) // 2
+    mid_z = (z1 + z2) // 2
+
+    grid[(x1 + 2, y_base + 1, z1 + 2)] = "minecraft:crafting_table"
+    grid[(x1 + 3, y_base + 1, z1 + 2)] = "minecraft:furnace"
+    grid[(x2 - 2, y_base + 1, z1 + 2)] = "minecraft:chest"
+    grid[(x2 - 3, y_base + 1, z1 + 2)] = "minecraft:barrel"
+    grid[(mid_x, y_base + 1, mid_z)] = "minecraft:crafting_table"
+    grid[(mid_x + 1, y_base + 1, mid_z)] = "minecraft:anvil"
+    grid[(mid_x, y_base + 1, mid_z - 1)] = "minecraft:cauldron"
+
+    for dx in range(-1, 2):
+        for dz in range(-1, 2):
+            if 0 <= mid_x + dx <= x2 and 0 <= mid_z + dz <= z2:
+                grid[(mid_x + dx, y_base + 1, mid_z + dz)] = "minecraft:red_carpet"
+
+    logger.info("Stage 2: Added interior furniture")
+
+
+def _build_interior_lighting(grid: VoxelGrid, style: str, x1: int, y_base: int,
+                             z1: int, x2: int, z2: int, y_top: int) -> None:
+    """Add lanterns and torches throughout interior."""
+    mid_x = (x1 + x2) // 2
+    mid_z = (z1 + z2) // 2
+
+    for y in range(y_base + 1, y_top):
+        grid[(mid_x, y, mid_z)] = "minecraft:lantern"
+        grid[(x1 + 2, y, z1 + 2)] = "minecraft:torch"
+        grid[(x2 - 2, y, z2 - 2)] = "minecraft:torch"
+        grid[(x1 + 2, y, z2 - 2)] = "minecraft:torch"
+        grid[(x2 - 2, y, z1 + 2)] = "minecraft:torch"
+
+    logger.info("Stage 2: Added interior lighting")

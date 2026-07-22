@@ -10,7 +10,7 @@ import logging
 from typing import Dict, Any, List
 
 from .llm_client import call_llm_json, DETAILING_MODEL
-from .primitives import VoxelGrid
+from .primitives import VoxelGrid, get_bounds
 from .styles import get_style, get_block
 
 logger = logging.getLogger(__name__)
@@ -65,8 +65,13 @@ Vocabulary (choose ONLY from these exact strings):
 Rules:
 - Every face must have all four fields
 - Door accent only applies to the face marked as entrance (usually south)
-- Be conservative: prefer "none" over random decoration
-- Match the building style (medieval=ornate, modern=minimal, desert=geometric)
+- BE DECORATIVE: prefer actual decorations over "none". Only use "none" if the style demands minimalism
+- Match the building style:
+  - medieval_stone: use cornice, arch, arched door, checkerboard, shutter
+  - modern_glass: use ledge, grille, minimal trim, horizontal_band
+  - desert_sandstone: use cornice, arch, geometric patterns, double_door
+  - rustic_wood: use ledge, shutter, arched door, random_accent
+- At least 2 faces should have non-"none" trim or wall_pattern
 - Return ONLY the JSON, no explanation
 """
 
@@ -116,7 +121,7 @@ Return detailing JSON for all 4 faces + global."""
         user_prompt=user_prompt,
         model=DETAILING_MODEL,
         temperature=0.5,
-        max_tokens=512,
+        max_tokens=2048,
     )
 
     plan = validate_detail_plan(plan, entrance_face)
