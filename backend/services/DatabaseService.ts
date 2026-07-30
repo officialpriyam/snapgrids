@@ -79,8 +79,14 @@ class DatabaseService {
         return this.request<T[]>(table, { method: 'DELETE', filters });
     }
 
-    public async addMessage(sessionId: string, role: string, content: string) {
-        return this.insert('messages', { session_id: sessionId, role, content });
+    public async addMessage(sessionId: string, role: string, content: string, messageType = 'message', metadata: Record<string, unknown> = {}) {
+        return this.insert('messages', {
+            session_id: sessionId,
+            role,
+            content,
+            message_type: messageType,
+            metadata
+        });
     }
 
     public async getMessagesBySessionId(sessionId: string) {
@@ -90,6 +96,18 @@ class DatabaseService {
             select: '*'
         });
         return rows.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    }
+
+    public async updateMessage(id: number, values: { content?: string; messageType?: string; metadata?: Record<string, unknown> }) {
+        const update: Record<string, unknown> = {};
+        if (values.content !== undefined) update.content = values.content;
+        if (values.messageType !== undefined) update.message_type = values.messageType;
+        if (values.metadata !== undefined) update.metadata = values.metadata;
+        return this.update('messages', { id }, update);
+    }
+
+    public async deleteMessagesBySessionId(sessionId: string) {
+        return this.remove('messages', { session_id: sessionId });
     }
 
     public async createUser(user: { id: string; email: string; name: string }) {

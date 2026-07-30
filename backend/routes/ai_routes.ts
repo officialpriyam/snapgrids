@@ -19,12 +19,23 @@ import { cacheService } from '../services/CacheService';
 
 const router = Router();
 
+async function requireProjectEditor(sessionId: string, userId: string) {
+    const access = await dbService.isProjectAccessible(sessionId, userId);
+    if (!access.accessible || !access.role || access.role === 'viewer') {
+        const error: any = new Error('You do not have permission to change this project conversation.');
+        error.status = 403;
+        throw error;
+    }
+    return access;
+}
+
 /**
  * Plan mode: Generate clarifying questions & project blueprint
  */
-router.post('/plan', asyncHandler(async (req, res) => {
-    const { prompt, platform, language, model } = req.body;
-    if (!prompt) return res.status(400).json({ error: "Prompt is required" });
+router.post('/plan', asyncHandler(requireAuth), asyncHandler(async (req, res) => {
+    const { prompt, platform, language, model, sessionId } = req.body;
+    if (!prompt || !sessionId) return res.status(400).json({ error: "Prompt and sessionId are required" });
+    await requireProjectEditor(sessionId, req.auth!.userId);
 
     try {
         const isNvidia = model && (model.startsWith('nvidia/') || model.includes('nemotron'));
@@ -78,60 +89,97 @@ Generate 1-2 practical, high-value questions for the user to refine requirements
         });
 
         const rawContent = response.data.choices[0]?.message?.content || "";
+        const promptTopic = prompt.replace(/https?:\/\/[^\s]+/g, '').trim() || prompt;
+        const cleanTopic = promptTopic.slice(0, 60);
+
+        const fallbackResult = {
+            questions: [
+                {
+                    id: "q1",
+                    question: `${cleanTopic} is a custom project with features, UI, and components. How much should I build now?`,
+                    options: [
+                        "Marketplace frontend only — Home, browse/category pages, product detail, seller profile — with realistic demo data, no backend.",
+                        "Frontend + accounts & real data — Adds signup/login, real listings in a database, seller dashboard to post items.",
+                        "Just the landing/home page — One polished home page in that style, nothing else.",
+                        "Write your own..."
+                    ]
+                }
+            ],
+            plan: {
+                title: `Plan for ${cleanTopic}`,
+                summary: `Comprehensive implementation plan for ${prompt}`,
+                components: [
+                    { name: "Core Application Logic", desc: "Main features and data structures" },
+                    { name: "UI / Configuration", desc: "User interface and settings" }
+                ],
+                designDirection: ["Modern architecture", "Clean code patterns"]
+            }
+        };
+
         let jsonResult: any = null;
         try {
             const cleanJson = rawContent.replace(/```json\n?|\n?```/g, '').trim();
             jsonResult = JSON.parse(cleanJson);
         } catch {
-            jsonResult = {
-                questions: [
-                    {
-                        id: "q1",
-                        question: `How much of ${prompt.slice(0, 50)}... should I build now?`,
-                        options: [
-                            "Full project implementation with all core features",
-                            "Basic prototype / starter template",
-                            "Frontend / API component only"
-                        ]
-                    }
-                ],
-                plan: {
-                    title: `Plan for ${prompt.slice(0, 40)}`,
-                    summary: `Comprehensive implementation plan for ${prompt}`,
-                    components: [
-                        { name: "Core Application Logic", desc: "Main features and data structures" },
-                        { name: "UI / Configuration", desc: "User interface and settings" }
-                    ],
-                    designDirection: ["Modern architecture", "Clean code patterns"]
-                }
-            };
+            jsonResult = fallbackResult;
         }
 
-        res.json(jsonResult);
+        await dbService.addMessage(sessionId, 'user', prompt, 'message');
+        const saved = await dbService.addMessage(sessionId, 'assistant', jsonResult.plan?.summary || 'Plan ready for review.', 'plan', {
+            plan: jsonResult.plan,
+            questions: jsonResult.questions || [],
+            answers: {},
+            status: 'awaiting_answers'
+        });
+        res.json({ ...jsonResult, message: saved?.[0] || null });
     } catch (error: any) {
         console.error('[AI Routes] /plan failed:', error.message);
-        res.json({
+        const promptTopic = prompt.replace(/https?:\/\/[^\s]+/g, '').trim() || prompt;
+        const cleanTopic = promptTopic.slice(0, 60);
+        const fallback = {
             questions: [
                 {
                     id: "q1",
-                    question: "What scope would you like to build first?",
+                    question: `${cleanTopic} is a custom project with features, UI, and components. How much should I build now?`,
                     options: [
-                        "Complete full-featured implementation",
-                        "Minimal viable prototype",
-                        "Modular component architecture"
+                        "Marketplace frontend only — Home, browse/category pages, product detail, seller profile — with realistic demo data, no backend.",
+                        "Frontend + accounts & real data — Adds signup/login, real listings in a database, seller dashboard to post items.",
+                        "Just the landing/home page — One polished home page in that style, nothing else.",
+                        "Write your own..."
                     ]
                 }
             ],
             plan: {
-                title: "Project Implementation Blueprint",
+                title: `Plan for ${cleanTopic}`,
                 summary: `Architecture blueprint for ${prompt}`,
                 components: [
                     { name: "Main System", desc: "Core implementation files" }
                 ],
                 designDirection: ["High performance", "Clean modular structure"]
             }
+        };
+        await dbService.addMessage(sessionId, 'user', prompt, 'message');
+        const saved = await dbService.addMessage(sessionId, 'assistant', fallback.plan.summary, 'plan', {
+            plan: fallback.plan, questions: fallback.questions, answers: {}, status: 'awaiting_answers'
         });
+        res.json({ ...fallback, message: saved?.[0] || null });
     }
+}));
+
+router.patch('/plans/:messageId', asyncHandler(requireAuth), asyncHandler(async (req, res) => {
+    const messageId = Number(req.params.messageId);
+    const { sessionId, answers, status } = req.body;
+    if (!messageId || !sessionId || !['awaiting_approval', 'approved'].includes(status)) {
+        return res.status(400).json({ error: 'Valid sessionId, message id and plan status are required.' });
+    }
+    await requireProjectEditor(sessionId, req.auth!.userId);
+    const messages = await dbService.getMessagesBySessionId(sessionId);
+    const message = messages.find((item: any) => item.id === messageId && item.message_type === 'plan');
+    if (!message) return res.status(404).json({ error: 'Plan not found.' });
+    const metadata = { ...(message.metadata || {}), answers: answers || {}, status };
+    await dbService.updateMessage(messageId, { metadata });
+    await dbService.addMessage(sessionId, 'assistant', status === 'approved' ? 'Plan approved. Building your project now.' : 'Answers saved. Review and approve the plan when ready.', 'timeline', { event: status, planMessageId: messageId });
+    res.json({ success: true, metadata });
 }));
 
 
@@ -140,7 +188,7 @@ Generate 1-2 practical, high-value questions for the user to refine requirements
  */
 router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res) => {
     console.log('[AI Routes] /generate called');
-    const { prompt, model, language, sessionId: existingSessionId, enableWebSearch, images, fileContext, chatMode } = req.body;
+    const { prompt, model, language, sessionId: existingSessionId, enableWebSearch, images, fileContext, chatMode, fromPlan, planMessageId } = req.body;
 
     if (!prompt) {
         return res.status(400).json({ error: "Prompt is required" });
@@ -170,6 +218,9 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
     let creditsRemaining = user.credits;
     let searchQueries: string[] = [];
     let searchSources: { title: string; url: string }[] = [];
+
+    if (existingSessionId) await requireProjectEditor(existingSessionId, req.auth!.userId);
+    if (fromPlan && (!existingSessionId || !planMessageId)) return res.status(400).json({ error: 'An approved plan is required.' });
 
     try {
         let history: Array<{ role: string; content: string }> = [];
@@ -235,6 +286,15 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
         console.log(`[AI Routes] /generate AI completed - ${files.length} files, model: ${modelUsed}${chatMode ? ' (chat mode)' : ''}`);
     } catch (aiError: any) {
         console.error('[AI Routes] AI generation failed:', aiError.message);
+        if (fromPlan && planMessageId) {
+            try {
+                const stored = (await dbService.getMessagesBySessionId(sessionId)).find((m: any) => m.id === Number(planMessageId));
+                if (stored) await dbService.updateMessage(Number(planMessageId), { metadata: { ...(stored.metadata || {}), status: 'error' } });
+                await dbService.addMessage(sessionId, 'assistant', `Build failed: ${aiError.message || 'Unknown AI error'}`, 'timeline', { event: 'build_failed', planMessageId });
+            } catch (persistError: any) {
+                console.warn('[AI Routes] Failed to persist plan build error:', persistError.message);
+            }
+        }
         return res.status(500).json({ error: `AI generation failed: ${aiError.message || 'Unknown error'}` });
     }
 
@@ -311,7 +371,7 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
 
     // Save chat history (non-critical) — save a summary, not raw code
     try {
-        await dbService.addMessage(sessionId, 'user', prompt);
+        if (!fromPlan) await dbService.addMessage(sessionId, 'user', prompt, 'message');
 
         // Build a compact summary of what was generated instead of saving raw code
         const fileList = files.map(f => f.path).join(', ');
@@ -333,7 +393,15 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
         const fileSizes = files.map(f => `${f.path} (${f.content.length} chars)`).join(', ');
         summaryParts.push(`Files created: ${fileSizes}`);
         const summary = summaryParts.join('\n\n');
-        await dbService.addMessage(sessionId, 'assistant', summary.slice(0, 3000));
+        await dbService.addMessage(sessionId, 'assistant', chatMode ? rawResponse.slice(0, 4000) : summary.slice(0, 3000), chatMode ? 'message' : 'build', {
+            files: files.map(f => ({ path: f.path, size: f.content?.length || 0 })),
+            status: chatMode ? 'completed' : 'completed'
+        });
+        if (fromPlan && planMessageId) {
+            const stored = (await dbService.getMessagesBySessionId(sessionId)).find((m: any) => m.id === Number(planMessageId));
+            if (stored) await dbService.updateMessage(Number(planMessageId), { metadata: { ...(stored.metadata || {}), status: 'completed' } });
+            await dbService.addMessage(sessionId, 'assistant', `Build completed: ${files.length} file(s) generated.`, 'timeline', { event: 'build_completed', planMessageId, files: files.map(f => f.path) });
+        }
     } catch (e: any) {
         console.warn('[AI Routes] Failed to save chat history:', e.message);
     }
@@ -455,14 +523,21 @@ router.post('/generate-and-compile', asyncHandler(requireAuth), asyncHandler(asy
 /**
  * Get chat history for a session
  */
-router.get('/messages/:sessionId', asyncHandler(async (req, res) => {
+router.get('/messages/:sessionId', asyncHandler(requireAuth), asyncHandler(async (req, res) => {
     const { sessionId } = req.params;
     try {
+        await requireProjectEditor(sessionId, req.auth!.userId);
         const messages = await dbService.getMessagesBySessionId(sessionId);
         res.json(messages);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
+}));
+
+router.delete('/messages/:sessionId', asyncHandler(requireAuth), asyncHandler(async (req, res) => {
+    await requireProjectEditor(req.params.sessionId, req.auth!.userId);
+    await dbService.deleteMessagesBySessionId(req.params.sessionId);
+    res.json({ success: true });
 }));
 
 /**
