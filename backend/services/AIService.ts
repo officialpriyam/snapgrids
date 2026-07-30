@@ -16,6 +16,7 @@ export interface CodeGenerationResult {
     model: string;
     searchQueries?: string[];
     searchSources?: { title: string; url: string }[];
+    imageWarning?: string;
 }
 
 // Velix tier model pools
@@ -118,6 +119,23 @@ export const generateCode = async (
     // Track web search queries and sources for frontend display
     const searchQueries: string[] = [];
     const searchSources: { title: string; url: string }[] = [];
+    let imageWarning: string | undefined = undefined;
+
+    // Perform live web search pre-fetch upfront if web search is enabled
+    if (enableWebSearch) {
+        try {
+            console.log(`[AIService] Live web search enabled for prompt: "${prompt}"`);
+            const results = await WebSearchService.searchWeb(prompt);
+            if (results && results.length > 0) {
+                searchQueries.push(prompt);
+                results.slice(0, 5).forEach(r => {
+                    if (r.title && r.url) searchSources.push({ title: r.title, url: r.url });
+                });
+            }
+        } catch (wsErr: any) {
+            console.warn('[AIService] Live web search pre-fetch failed:', wsErr.message);
+        }
+    }
 
     // Free fallback models ranked by coding ability
     const FREE_FALLBACK_MODELS = [
@@ -723,9 +741,31 @@ ${cappedSkills}`;
 
     // Try primary model first, then retry with lower tokens, then fallback to free models
     try {
-        return await tryGenerate(selectedModel);
+        const res = await tryGenerate(selectedModel);
+        if (imageWarning) res.imageWarning = imageWarning;
+        return res;
     } catch (primaryError: any) {
         const errMsg = primaryError?.response?.data?.error?.message || primaryError.message || '';
+
+        // If vision payload failed (model doesn't support images), convert to text-only & retry
+        if (images && images.length > 0) {
+            console.warn(`[AIService] Vision payload failed on ${selectedModel}: ${errMsg}. Retrying text-only...`);
+            imageWarning = `Model ${selectedModel} does not support image analysis. Proceeding with text prompt.`;
+            for (let i = 0; i < messages.length; i++) {
+                if (messages[i].role === 'user' && Array.isArray(messages[i].content)) {
+                    const textPart = messages[i].content.find((c: any) => c.type === 'text');
+                    messages[i].content = textPart ? textPart.text : prompt;
+                }
+            }
+            try {
+                const res = await tryGenerate(selectedModel);
+                res.imageWarning = imageWarning;
+                return res;
+            } catch (textRetryErr: any) {
+                console.warn(`[AIService] Text-only retry on ${selectedModel} also failed:`, textRetryErr.message);
+            }
+        }
+
         const isContextError = errMsg.includes('context_length') || errMsg.includes('maximum context') || errMsg.includes('too long');
         const isRateLimit = primaryError?.response?.status === 429 || errMsg.includes('rate limit');
         const isTokenLimit = errMsg.includes('max_tokens') || errMsg.includes('fewer max_tokens') || errMsg.includes('afford');

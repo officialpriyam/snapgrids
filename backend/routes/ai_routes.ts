@@ -363,6 +363,7 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
         creditsRemaining,
         searchQueries: searchQueries.length > 0 ? searchQueries : undefined,
         searchSources: searchSources.length > 0 ? searchSources : undefined,
+        imageWarning: (result as any)?.imageWarning,
         chatMode: chatMode || false
     };
     console.log(`[AI Routes] /generate sending response - files: ${files.length}, payload size: ~${JSON.stringify(responsePayload).length} bytes`);
