@@ -71,22 +71,23 @@ function getFileType(filename: string): string {
 export const ChatPanel = ({
     sessionId,
     onCodeGenerated,
-    model = 'priyx-ultra',
-    language = 'java',
-    platform = 'minecraft',
     compact = false,
     onPromptSubmit,
-    initialPrompt,
-    onInitialPromptHandled,
-    highlight = '',
+    projectFiles,
+    platform = 'minecraft',
+    language = 'java',
+    model = 'priyx-ultra',
     modelDropdown,
     typeDropdown,
+    highlight = '',
+    autoCompile = true,
     buildResult,
     compiling = false,
     onClearBuildResult,
     onAutoFix,
     onDownloadArtifact,
-    projectFiles
+    initialPrompt,
+    onInitialPromptHandled
 }: ChatPanelProps) => {
     const { showNotification } = useNotification();
     const router = useRouter();
@@ -98,6 +99,16 @@ export const ChatPanel = ({
     const [attachedFiles, setAttachedFiles] = useState<{ name: string; type: string; content: string; size: number }[]>([]);
     const [enableWebSearch, setEnableWebSearch] = useState(false);
     const [chatMode, setChatMode] = useState(false);
+    const [execMode, setExecMode] = useState<'build' | 'plan' | 'chat'>('build');
+    const [showExecModeDropdown, setShowExecModeDropdown] = useState(false);
+
+    // Interactive Plan & Questions State
+    const [planningData, setPlanningData] = useState<{ questions: any[]; plan: any } | null>(null);
+    const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+    const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
+    const [customAnswerText, setCustomAnswerText] = useState('');
+    const [planApproved, setPlanApproved] = useState(false);
+    const [showPlanDrawer, setShowPlanDrawer] = useState(false);
     const [searchStatus, setSearchStatus] = useState<{ queries: string[]; sources: { title: string; url: string }[] } | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -407,6 +418,43 @@ export const ChatPanel = ({
             const attachments = attachedFiles.map(f => ({ name: f.name, type: f.type, size: f.size }));
             return [...prev, { role: 'user', content: userMsg, attachments: attachments.length > 0 ? attachments : undefined }];
         });
+
+        if (execMode === 'plan') {
+            setStatusLog([{ message: 'Analyzing marketplace site patterns & planning blueprint...', type: 'pending' }]);
+            try {
+                const planRes = await aiApi.getPlan(finalPrompt, platform, language, model, controller.signal);
+                if (planRes) {
+                    setPlanningData(planRes);
+                    setActiveQuestionIndex(0);
+                    setPlanApproved(false);
+                    setStatusLog([{ message: 'Plan & questions generated', type: 'done' }]);
+                }
+            } catch (planErr: any) {
+                console.error('Plan failed:', planErr);
+                setStatusLog([{ message: 'Proceeding directly to build...', type: 'error' }]);
+                runBuildGeneration(finalPrompt);
+                return;
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+
+        runBuildGeneration(finalPrompt);
+    };
+
+    const runBuildGeneration = async (finalPromptOverride?: string) => {
+        const userMsg = messages[messages.length - 1]?.content || prompt;
+        let finalPrompt = finalPromptOverride || userMsg;
+
+        if (planningData && planningData.plan) {
+            const answersSummary = Object.entries(selectedAnswers).map(([qId, ans]) => `- ${qId}: ${ans}`).join('\n');
+            finalPrompt = `[PROJECT BLUEPRINT]:\nTitle: ${planningData.plan.title}\nSummary: ${planningData.plan.summary}\nSelected Preferences:\n${answersSummary}\n\n[USER REQUEST]:\n${finalPrompt}`;
+        }
+
+        setLoading(true);
+        setGeneratedFiles({ created: [], edited: [] });
+        setSearchStatus(null);
 
         if (typeof window !== 'undefined' && window.location.search) {
             const cleanUrl = window.location.pathname;

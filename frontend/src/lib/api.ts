@@ -118,6 +118,16 @@ export const aiApi = {
         });
         return safeJson(res);
     },
+    getPlan: async (prompt: string, platform?: string, language?: string, model?: string, signal?: AbortSignal) => {
+        const res = await fetch(`${BASE_URL}/ai/plan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ prompt, platform, language, model }),
+            signal
+        });
+        return safeJson(res);
+    },
     getProjectSettings: async (sessionId: string) => {
         const res = await fetch(`${BASE_URL}/ai/projects/${sessionId}/settings`, { credentials: 'include' });
         return safeJson(res);

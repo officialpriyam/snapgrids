@@ -1,4 +1,3 @@
-"""
 Stage 3 — Detailing Pass (LLM Call #2)
 
 For each exterior wall face, the LLM chooses from a fixed vocabulary
@@ -17,17 +16,20 @@ logger = logging.getLogger(__name__)
 
 DETAIL_VOCABULARY = {
     "trim": [
-        "none", "cornice", "ledge", "pillar_corners", "band_mid", "band_top"
+        "none", "cornice", "ledge", "pillar_corners", "band_mid", "band_top",
+        "wrought_iron", "stone_carving", "geometrically_patterned", "rugged_brace"
     ],
     "window_accent": [
-        "none", "frame", "sill", "arch", "shutters", "grille"
+        "none", "frame", "sill", "arch", "shutters", "grille", "stained_glass",
+        "colored_border", "latticed_paned"
     ],
     "wall_pattern": [
         "none", "checkerboard", "horizontal_band", "vertical_stripes",
-        "random_accent", "gradient"
+        "random_accent", "gradient", "herringbone", "basket_weave", "knobbed"
     ],
     "door_accent": [
-        "none", "arched", "double_door", "iron_bars", "portcullis"
+        "none", "arched", "double_door", "iron_bars", "portcullis", "carved_stone",
+        "wooden_grille", "glass_paned"
     ],
 }
 
@@ -44,7 +46,8 @@ DETAILING_SCHEMA = """{
   "global": {
     "chimney_decor": "bool",
     "roof_ridge_decor": "bool",
-    "foundation_detail": "bool"
+    "foundation_detail": "bool",
+    "entrance_details": "bool"
   }
 }"""
 
@@ -54,7 +57,7 @@ VOCAB_DESC = "\n".join(
 
 SYSTEM_PROMPT = f"""You are a Minecraft architectural detailer.
 
-Given a building blueprint and style, assign decorative patterns to each wall face.
+Given a building blueprint and style, assign distinctive decorative patterns to each wall face.
 
 Return ONLY a valid JSON object matching this schema:
 {DETAILING_SCHEMA}
@@ -65,13 +68,14 @@ Vocabulary (choose ONLY from these exact strings):
 Rules:
 - Every face must have all four fields
 - Door accent only applies to the face marked as entrance (usually south)
-- BE DECORATIVE: prefer actual decorations over "none". Only use "none" if the style demands minimalism
+- VARY YOUR CHOICES: Do NOT use "none" for all faces unless style demands minimalism
 - Match the building style:
-  - medieval_stone: use cornice, arch, arched door, checkerboard, shutter
-  - modern_glass: use ledge, grille, minimal trim, horizontal_band
-  - desert_sandstone: use cornice, arch, geometric patterns, double_door
-  - rustic_wood: use ledge, shutter, arched door, random_accent
-- At least 2 faces should have non-"none" trim or wall_pattern
+  - medieval_stone: prefer ornate options like cornice, arch, carved_stone, banded patterns
+  - modern_glass: use ledge, grille, stained_glass, geometric patterns
+  - desert_sandstone: use arch, double_door, carved_stone, geometric patterns
+  - rustic_wood: prefer shutter, arched, wrought_iron, knobbed
+- At least 3 faces must have non-"none" trim or wall_pattern (exception: modern_glass max 2)
+- Mix different decorative elements across faces for visual interest
 - Return ONLY the JSON, no explanation
 """
 
@@ -113,14 +117,14 @@ Features: {features}
 Entrance face: {entrance_face}
 Foundation: {blueprint['foundation']['height']} blocks
 
-Return detailing JSON for all 4 faces + global."""
+Return detailing JSON for all 4 faces + global. Add plenty of decorative elements matching the style."""
 
     logger.info("Stage 3: Generating detailing plan...")
     plan = call_llm_json(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=user_prompt,
         model=DETAILING_MODEL,
-        temperature=0.5,
+        temperature=0.8,  # Increased for more variety
         max_tokens=2048,
     )
 
@@ -132,12 +136,6 @@ Return detailing JSON for all 4 faces + global."""
 def validate_detail_plan(plan: Dict[str, Any], entrance_face: str) -> Dict[str, Any]:
     """Validate and clamp detailing plan values."""
     valid_faces = ["north", "south", "east", "west"]
-
-    for cat, vals in DETAIL_VOCABULARY.items():
-        DETAIL_VOCABULARY[cat] = vals  # ensure list
-
-    if "faces" not in plan or not isinstance(plan["faces"], list):
-        plan["faces"] = []
 
     # Ensure all 4 faces present
     existing_faces = {f.get("face") for f in plan["faces"]}
@@ -162,11 +160,31 @@ def validate_detail_plan(plan: Dict[str, Any], entrance_face: str) -> Dict[str, 
             if f[cat] not in DETAIL_VOCABULARY[cat]:
                 f[cat] = "none"
 
+    # Force at least 3 non-none decorations (except for modern_glass)
+    style_name = plan.get("_style", "medieval_stone")
+    if style_name != "modern_glass":
+        non_none_count = sum(1 for f in plan["faces"] if f["trim"] != "none" or f["wall_pattern"] != "none")
+        if non_none_count < 3:
+            # Upgrade some faces
+            for f in plan["faces"]:
+                if non_none_count >= 3:
+                    break
+                if f["trim"] == "none" and "medieval_stone" in style_name:
+                    f["trim"] = "cornice"
+                    non_none_count += 1
+                elif f["wall_pattern"] == "none" and "medieval_stone" in style_name:
+                    f["wall_pattern"] = "checkerboard"
+                    non_none_count += 1
+                elif f["trim"] == "none":
+                    f["trim"] = "ledge"
+                    non_none_count += 1
+
     # Validate global
     global_plan = plan.get("global", {})
     global_plan.setdefault("chimney_decor", False)
     global_plan.setdefault("roof_ridge_decor", False)
     global_plan.setdefault("foundation_detail", False)
+    global_plan.setdefault("entrance_details", False)
     plan["global"] = global_plan
 
     return plan
@@ -187,12 +205,10 @@ def apply_details(grid: VoxelGrid, blueprint: Dict[str, Any],
         return
 
     (x1, y1, z1), (x2, y2, z2) = bounds
-    entrance_face = detail_plan.get("entrance_face", "south")
 
     for face_data in detail_plan["faces"]:
         face = face_data["face"]
-        _apply_face_details(grid, style, face, face_data, x1, y1, z1, x2, y2, z2,
-                            entrance_face)
+        _apply_face_details(grid, style, face, face_data, x1, y1, z1, x2, y2, z2)
 
     # Global details
     global_plan = detail_plan.get("global", {})
@@ -202,13 +218,15 @@ def apply_details(grid: VoxelGrid, blueprint: Dict[str, Any],
         _add_roof_ridge_decor(grid, style, x1, y1, z1, x2, y2, z2)
     if global_plan.get("foundation_detail"):
         _add_foundation_detail(grid, style, x1, y1, z1, x2, y2, z2)
+    if global_plan.get("entrance_details"):
+        _add_entrance_details(grid, style, x1, y1, z1, x2, y2, z2, face=detail_plan.get("entrance_face", "south"))
 
     logger.info("Stage 3: Details applied to grid")
 
 
 def _apply_face_details(grid: VoxelGrid, style: str, face: str,
                         face_data: Dict, x1: int, y1: int, z1: int,
-                        x2: int, y2: int, z2: int, entrance_face: str) -> None:
+                        x2: int, y2: int, z2: int) -> None:
     """Apply details to a single face."""
     s = get_style(style)
     trim_type = face_data["trim"]
@@ -221,9 +239,9 @@ def _apply_face_details(grid: VoxelGrid, style: str, face: str,
     wall_accent = s.get("wall", {}).get("accent", "minecraft:mossy_stone_bricks")
     window_frame = s.get("window", {}).get("frame", "minecraft:stone_brick_wall")
     window_sill = s.get("window", {}).get("sill", "minecraft:stone_brick_stairs")
-    window_shutters = "minecraft:spruce_trapdoor"  # shutters
+    window_shutters = "minecraft:spruce_trapdoor"
 
-    # Trim
+    # Apply trim
     if trim_type == "cornice":
         _add_cornice(grid, trim_block, x1, y2, z1, x2, z2, face)
     elif trim_type == "ledge":
@@ -235,8 +253,15 @@ def _apply_face_details(grid: VoxelGrid, style: str, face: str,
         _add_band(grid, wall_accent, x1, (y1 + y2) // 2, z1, x2, z2, face)
     elif trim_type == "band_top":
         _add_band(grid, wall_accent, x1, y2 - 1, z1, x2, z2, face)
+    elif trim_type == "wrought_iron":
+        _add_wrought_iron(grid, s.get("trim", {}).get("pillar", "minecraft:iron_bars"),
+                          x1, y1, z1, x2, y2, z2, face)
+    elif trim_type == "stone_carving":
+        _add_stone_carving(grid, wall_accent, x1, y1, z1, x2, y2, z2, face)
+    elif trim_type == "geometrically_patterned":
+        _add_geometric_pattern(grid, wall_primary, wall_accent, x1, y1, z1, x2, y2, z2, face)
 
-    # Window accents
+    # Apply window accents
     if window_accent == "frame":
         _add_window_frames(grid, window_frame, x1, y1, z1, x2, y2, z2, face)
     elif window_accent == "sill":
@@ -247,8 +272,17 @@ def _apply_face_details(grid: VoxelGrid, style: str, face: str,
         _add_shutters(grid, window_shutters, x1, y1, z1, x2, y2, z2, face)
     elif window_accent == "grille":
         _add_grille(grid, "minecraft:iron_bars", x1, y1, z1, x2, y2, z2, face)
+    elif window_accent == "stained_glass":
+        _add_stained_glass(grid, s.get("window", {}).get("glass", "minecraft:light_blue_stained_glass_pane"),
+                           x1, y1, z1, x2, y2, z2, face)
+    elif window_accent == "colored_border":
+        _add_colored_border(grid, s.get("window", {}).get("frame", "minecraft:iron_bars"),
+                           x1, y1, z1, x2, y2, z2, face)
+    elif window_accent == "latticed_paned":
+        _add_lattice(grid, s.get("window", {}).get("frame", "minecraft:iron_bars"),
+                    x1, y1, z1, x2, y2, z2, face)
 
-    # Wall patterns
+    # Apply wall patterns
     if wall_pattern == "checkerboard":
         _add_checkerboard(grid, wall_primary, wall_accent, x1, y1, z1, x2, y2, z2, face)
     elif wall_pattern == "horizontal_band":
@@ -259,9 +293,15 @@ def _apply_face_details(grid: VoxelGrid, style: str, face: str,
         _add_random_accent(grid, wall_accent, x1, y1, z1, x2, y2, z2, face)
     elif wall_pattern == "gradient":
         _add_gradient(grid, wall_primary, wall_accent, x1, y1, z1, x2, y2, z2, face)
+    elif wall_pattern == "herringbone":
+        _add_herringbone(grid, wall_primary, wall_accent, x1, y1, z1, x2, y2, z2, face)
+    elif wall_pattern == "basket_weave":
+        _add_basket_weave(grid, wall_primary, wall_accent, x1, y1, z1, x2, y2, z2, face)
+    elif wall_pattern == "knobbed":
+        _add_knobbed(grid, wall_accent, x1, y1, z1, x2, y2, z2, face)
 
-    # Door accent (entrance face only)
-    if face == entrance_face and door_accent != "none":
+    # Apply door accent (entrance face only)
+    if face == "south" and door_accent != "none":
         _add_door_accent(grid, style, door_accent, x1, y1, z1, x2, y2, z2, face)
 
 
@@ -337,19 +377,53 @@ def _add_band(grid: VoxelGrid, block: str, x1: int, y: int, z1: int,
             grid[(x2, y, z)] = block
 
 
+def _add_wrought_iron(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
+                      x2: int, y2: int, z2: int, face: str) -> None:
+    """Add wrought iron railing pattern."""
+    if face == "north":
+        for y in range(y1 + 1, y2, 2):
+            for x in range(x1, x2 + 1):
+                grid[(x, y, z1)] = block
+    elif face == "south":
+        for y in range(y1 + 1, y2, 2):
+            for x in range(x1, x2 + 1):
+                grid[(x, y, z2)] = block
+
+
+def _add_stone_carving(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
+                       x2: int, y2: int, z2: int, face: str) -> None:
+    """Add stone carving pattern."""
+    if face == "north":
+        for y in range(y1 + 2, y2, 3):
+            for x in range(x1 + 1, x2, 2):
+                grid[(x, y, z1)] = block
+
+
+def _add_geometric_pattern(grid: VoxelGrid, primary: str, accent: str,
+                           x1: int, y1: int, z1: int, x2: int, y2: int, z2: int,
+                           face: str) -> None:
+    """Add geometric pattern (X or Diamond shape)."""
+    if face == "north":
+        for y in range(y1 + 1, y2, 2):
+            grid[(x1 + 1, y, z1)] = primary
+            grid[(x2 - 1, y, z1)] = primary
+            grid[(x1 + 2, y, z1)] = accent
+            grid[(x2 - 2, y, z1)] = accent
+            grid[(x1 + (x2 - x1) // 2, y, z1)] = primary
+
+
 def _add_window_frames(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
                        x2: int, y2: int, z2: int, face: str) -> None:
     """Add frames around windows on a face."""
-    # Find window positions and add 1-block thick frame
     if face == "north":
         for x in range(x1, x2 + 1):
             for y in range(y1, y2 + 1):
                 if grid.get((x, y, z1)) == "minecraft:glass_pane":
                     for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                         nx, ny = x + dx, y + dy
-                        if grid.get((nx, ny, z1)) not in ("minecraft:glass_pane", "minecraft:air"):
+                        if (nx, ny, z1) not in grid:
                             grid[(nx, ny, z1)] = block
-    # Similar for other faces - simplified for brevity
+    # Simplified for other faces
 
 
 def _add_window_sills(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
@@ -359,77 +433,227 @@ def _add_window_sills(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
         for x in range(x1, x2 + 1):
             for y in range(y1 + 1, y2):
                 if grid.get((x, y, z1)) == "minecraft:glass_pane":
-                    if grid.get((x, y - 1, z1)) not in ("minecraft:glass_pane", "minecraft:air"):
-                        grid[(x, y - 1, z1)] = block
+                    grid[(x, y - 1, z1)] = block
 
 
 def _add_window_arches(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
                        x2: int, y2: int, z2: int, face: str) -> None:
     """Add arches above windows."""
-    pass  # Simplified
+    if face == "north":
+        for y in range(y1 + 2, min(y2, y1 + 6)):
+            for x in range(x1 + 2, x2 - 2, 2):
+                grid[(x, y, z1)] = block
 
 
 def _add_shutters(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
                   x2: int, y2: int, z2: int, face: str) -> None:
     """Add shutters beside windows."""
-    pass
+    if face == "north":
+        for y in range(y1 + 1, y2, 2):
+            grid[(x1 + 1, y, z1)] = block
+            grid[(x2 - 2, y, z1)] = block
 
 
 def _add_grille(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
                 x2: int, y2: int, z2: int, face: str) -> None:
     """Add iron bars grille over windows."""
-    pass
+    if face == "north":
+        for y in range(y1 + 1, y2, 2):
+            for x in range(x1 + 1, x2 - 1, 2):
+                grid[(x, y, z1)] = block
 
 
-def _add_checkerboard(grid: VoxelGrid, primary: str, accent: str, x1: int, y1: int, z1: int,
-                      x2: int, y2: int, z2: int, face: str) -> None:
+def _add_stained_glass(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
+                       x2: int, y2: int, z2: int, face: str) -> None:
+    """Add colored glass in windows."""
+    if face == "north":
+        for y in range(y1, y2, 2):
+            for x in range(x1 + 1, x2 - 1, 3):
+                grid[(x, y, z1)] = block
+
+
+def _add_colored_border(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
+                       x2: int, y2: int, z2: int, face: str) -> None:
+    """Add colored border around windows."""
+    if face == "north":
+        for y in range(y1 + 1, y2, 2):
+            grid[(x1, y, z1)] = block
+            grid[(x2, y, z1)] = block
+            grid[(x1 + 1, y, z1)] = block
+            grid[(x2 - 1, y, z1)] = block
+
+
+def _add_lattice(grid: VoxelGrid, block: str, x1: int, y1: int, z1: int,
+                 x2: int, y2: int, z2: int, face: str) -> None:
+    """Add lattice pattern over windows."""
+    if face == "north":
+        for y in range(y1 + 1, y2, 2):
+            for x in range(x1 + 1, x2 - 1, 2):
+                grid[(x, y, z1)] = block
+
+
+def _add_checkerboard(grid: VoxelGrid, primary: str, accent: str,
+                      x1: int, y1: int, z1: int, x2: int, y2: int, z2: int,
+                      face: str) -> None:
     """Add checkerboard pattern on face."""
-    pass
+    if face == "north":
+        for y in range(y1, y2, 2):
+            for x in range(x1, x2, 2):
+                grid[(x, y, z1)] = primary
+            for x in range(x1 + 1, x2 + 1, 2):
+                grid[(x, y, z1)] = accent
 
 
 def _add_horizontal_bands(grid: VoxelGrid, accent: str, x1: int, y1: int, z1: int,
                           x2: int, y2: int, z2: int, face: str) -> None:
     """Add horizontal bands on face."""
-    pass
+    if face == "north":
+        for y in range(y1, y2, 3):
+            for x in range(x1, x2 + 1):
+                grid[(x, y, z1)] = accent
 
 
 def _add_vertical_stripes(grid: VoxelGrid, accent: str, x1: int, y1: int, z1: int,
                           x2: int, y2: int, z2: int, face: str) -> None:
     """Add vertical stripes on face."""
-    pass
+    if face == "north":
+        for x in range(x1, x2 + 1, 2):
+            for y in range(y1, y2 + 1):
+                grid[(x, y, z1)] = accent
 
 
 def _add_random_accent(grid: VoxelGrid, accent: str, x1: int, y1: int, z1: int,
                        x2: int, y2: int, z2: int, face: str) -> None:
     """Add random accent blocks on face."""
-    pass
+    import random
+    if face == "north":
+        for y in range(y1, y2, 2):
+            for x in range(x1 + 1, x2, 2):
+                if random.random() < 0.5:
+                    grid[(x, y, z1)] = accent
 
 
-def _add_gradient(grid: VoxelGrid, primary: str, accent: str, x1: int, y1: int, z1: int,
+def _add_gradient(grid: VoxelGrid, primary: str, accent: str,
+                  x1: int, y1: int, z1: int, x2: int, y2: int, z2: int,
+                  face: str) -> None:
+    """Add gradient pattern (darker at top)."""
+    if face == "north":
+        height = y2 - y1 + 1
+        for y_offset in range(height):
+            y = y1 + y_offset
+            density = (height - y_offset) / height
+            if random.random() < density:
+                grid[(x1 + 1, y, z1)] = primary
+            if random.random() < density * 0.7:
+                grid[(x1 + 2, y, z1)] = accent
+
+
+def _add_herringbone(grid: VoxelGrid, primary: str, accent: str,
+                     x1: int, y1: int, z1: int, x2: int, y2: int, z2: int,
+                     face: str) -> None:
+    """Add herringbone pattern."""
+    if face == "north":
+        for y in range(y1, y2, 2):
+            for x in range(x1, x2, 4):
+                grid[(x, y, z1)] = primary
+                grid[(x + 1, y, z1)] = accent
+                grid[(x + 2, y, z1)] = primary
+
+
+def _add_basket_weave(grid: VoxelGrid, primary: str, accent: str,
+                      x1: int, y1: int, z1: int, x2: int, y2: int, z2: int,
+                      face: str) -> None:
+    """Add basket weave pattern."""
+    if face == "north":
+        for y in range(y1, y2, 2):
+            for x in range(x1, x2, 3):
+                grid[(x, y, z1)] = primary
+                grid[(x + 1, y, z1)] = accent
+                grid[(x + 2, y, z1)] = primary
+
+
+def _add_knobbed(grid: VoxelGrid, accent: str, x1: int, y1: int, z1: int,
                   x2: int, y2: int, z2: int, face: str) -> None:
-    """Add gradient pattern on face."""
-    pass
+    """Add knobbed pattern (raised blocks)."""
+    if face == "north":
+        for y in range(y1 + 1, y2, 2):
+            for x in range(x1 + 1, x2, 3):
+                grid[(x, y, z1)] = accent
 
 
-def _add_door_accent(grid: VoxelGrid, style: str, accent: str, x1: int, y1: int, z1: int,
-                     x2: int, y2: int, z2: int, face: str) -> None:
+def _add_door_accent(grid: VoxelGrid, style: str, accent: str,
+                     x1: int, y1: int, z1: int, x2: int, y2: int, z2: int,
+                     face: str) -> None:
     """Add door accent on entrance face."""
-    pass
+    s = get_style(style)
+    if accent == "arched":
+        for y in range(y1, y1 + 3):
+            grid[(x1 + 2, y, z1)] = "minecraft:air"
+            grid[(x1 + 3, y, z1)] = "minecraft:air"
+    elif accent == "double_door":
+        for y in range(y1, y1 + 3):
+            grid[(x1 + 2, y, z1)] = "minecraft:air"
+            grid[(x1 + 3, y, z1)] = "minecraft:air"
+            grid[(x1 + 4, y, z1)] = "minecraft:air"
+            grid[(x1 + 5, y, z1)] = "minecraft:air"
+    elif accent == "iron_bars":
+        for y in range(y1 + 1, y1 + 2):
+            for x in range(x1 + 2, x1 + 6):
+                grid[(x, y, z1)] = "minecraft:iron_bars"
+    elif accent == "portcullis":
+        for y in range(y1 + 1, y1 + 2):
+            grid[(x1 + 4, y, z1)] = "minecraft:iron_bars"
+    elif accent == "carved_stone":
+        for y in range(y1 + 1, y1 + 2):
+            grid[(x1 + 2, y, z1)] = "minecraft:stone_brick_wall"
+            grid[(x1 + 5, y, z1)] = "minecraft:stone_brick_wall"
+    elif accent == "wooden_grille":
+        for y in range(y1 + 1, y1 + 2):
+            for x in range(x1 + 2, x1 + 6, 2):
+                grid[(x, y, z1)] = "minecraft:spruce_fence"
+    elif accent == "glass_paned":
+        for y in range(y1 + 1, y1 + 2):
+            grid[(x1 + 3, y, z1)] = "minecraft:glass_pane"
 
 
 def _add_chimney_decor(grid: VoxelGrid, style: str, x1: int, y1: int, z1: int,
                        x2: int, y2: int, z2: int) -> None:
     """Add chimney decoration."""
-    pass
+    stack_b = get_block(style, "chimney")
+    for x in range(x1 + 1, x2 - 1, 2):
+        for z in range(z1 + 1, z2 - 1, 2):
+            grid[(x, y2 + 2, z)] = stack_b
 
 
 def _add_roof_ridge_decor(grid: VoxelGrid, style: str, x1: int, y1: int, z1: int,
                           x2: int, y2: int, z2: int) -> None:
     """Add roof ridge decoration."""
-    pass
+    ridge_b = get_block(style, "roof", "ridge")
+    grid[(x1 + 1, y2 + 2, z1 + 1)] = ridge_b
+    grid[(x2 - 1, y2 + 2, z2 - 1)] = ridge_b
 
 
 def _add_foundation_detail(grid: VoxelGrid, style: str, x1: int, y1: int, z1: int,
                            x2: int, y2: int, z2: int) -> None:
     """Add foundation detail."""
-    pass
+    foundation_b = get_block(style, "foundation")
+    for x in range(x1, x2 + 1, 3):
+        for z in range(z1, z2 + 1, 3):
+            grid[(x, y1 - 1, z)] = foundation_b
+
+
+def _add_entrance_details(grid: VoxelGrid, style: str, x1: int, y1: int, z1: int,
+                          x2: int, y2: int, z2: int, face: str) -> None:
+    """Add special details at the entrance."""
+    if face == "south":
+        s = get_style(style)
+        entrance_b = s.get("door", {}).get("frame", "minecraft:spruce_stairs")
+        for y in range(y1 + 2, y1 + 5):
+            grid[((x1 + x2) // 2, y, z1)] = entrance_b
+        grid[((x1 + x2) // 2, y1 + 3, z1)] = "minecraft:air"
+        grid[((x1 + x2) // 2 + 1, y1 + 3, z1)] = "minecraft:air"
+
+        # Add porch
+        for x in range(x1 + 1, x2 - 1, 2):
+            for z in range(z1 - 2, z1 - 1):
+                grid[(x, y1, z)] = s.get("floor", "minecraft:spruce_planks")

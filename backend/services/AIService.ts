@@ -18,54 +18,60 @@ export interface CodeGenerationResult {
     searchSources?: { title: string; url: string }[];
 }
 
-// Priyx tier model pools
-const PRIYX_LITE_MODELS = [
+// Velix tier model pools
+const VELIX_LITE_MODELS = [
     'openai/gpt-oss-20b:free',
     'google/gemma-4-26b-a4b-it:free',
     'google/gemma-4-31b-it:free',
+    'cohere/north-mini-code:free',
+    'nvidia/nemotron-nano-9b-v2:free',
     'meta-llama/llama-3.3-70b-instruct:free',
 ];
 
-const PRIYX_ULTRA_MODELS = [
+const VELIX_PRO_MODELS = [
     'qwen/qwen3-coder:free',
     'qwen/qwen3-next-80b-a3b-instruct:free',
     'openai/gpt-oss-120b:free',
     'nousresearch/hermes-3-llama-3.1-405b:free',
     'nvidia/nemotron-3-super-120b-a12b:free',
+    'deepseek-ai/deepseek-coder-6.7b-instruct',
+    'bigcode/starcoder2-15b',
 ];
 
-// Priyx Max: best models from OpenRouter + all NVIDIA models (randomly selected)
-const PRIYX_MAX_OPENROUTER = [
+// Velix Max: top models from OpenRouter + NVIDIA NIM (randomly selected)
+const VELIX_MAX_MODELS = [
     'qwen/qwen3-coder:free',
     'qwen/qwen3-next-80b-a3b-instruct:free',
     'openai/gpt-oss-120b:free',
     'nousresearch/hermes-3-llama-3.1-405b:free',
+    'deepseek-ai/deepseek-v4-pro',
+    'nvidia/llama-3.1-nemotron-70b-instruct',
 ];
 
 function resolveModelTier(model?: string): string {
-    if (!model) return 'priyx-ultra';
+    if (!model) return 'velix-pro';
     const m = model.toLowerCase();
-    if (m === 'priyx-lite' || m === 'lite') return 'priyx-lite';
-    if (m === 'priyx-ultra' || m === 'ultra') return 'priyx-ultra';
-    if (m === 'priyx-max' || m === 'max') return 'priyx-max';
+    if (m === 'velix-lite' || m === 'priyx-lite' || m === 'lite') return 'velix-lite';
+    if (m === 'velix-pro' || m === 'priyx-ultra' || m === 'velix-ultra' || m === 'pro' || m === 'ultra') return 'velix-pro';
+    if (m === 'velix-max' || m === 'priyx-max' || m === 'max') return 'velix-max';
     return model; // specific model ID passed through
 }
 
 function pickRandomModel(tier: string): string {
-    if (tier === 'priyx-lite') {
-        return PRIYX_LITE_MODELS[Math.floor(Math.random() * PRIYX_LITE_MODELS.length)];
+    if (tier === 'velix-lite') {
+        return VELIX_LITE_MODELS[Math.floor(Math.random() * VELIX_LITE_MODELS.length)];
     }
-    if (tier === 'priyx-max') {
-        // 50/50 chance: OpenRouter premium or NVIDIA
+    if (tier === 'velix-max') {
+        // 50/50 chance: OpenRouter top models or NVIDIA NIM models
         const useNvidia = Math.random() < 0.5 && config.nvidia_models && config.nvidia_models.length > 0;
         if (useNvidia && config.nvidia_models) {
             return config.nvidia_models[Math.floor(Math.random() * config.nvidia_models.length)];
         }
-        return PRIYX_MAX_OPENROUTER[Math.floor(Math.random() * PRIYX_MAX_OPENROUTER.length)];
+        return VELIX_MAX_MODELS[Math.floor(Math.random() * VELIX_MAX_MODELS.length)];
     }
-    // Ultra or specific model
-    if (tier === 'priyx-ultra') {
-        return PRIYX_ULTRA_MODELS[Math.floor(Math.random() * PRIYX_ULTRA_MODELS.length)];
+    // Pro (or Ultra) or specific model
+    if (tier === 'velix-pro') {
+        return VELIX_PRO_MODELS[Math.floor(Math.random() * VELIX_PRO_MODELS.length)];
     }
     return tier; // pass through specific model ID
 }
@@ -124,7 +130,114 @@ export const generateCode = async (
         'nousresearch/hermes-3-llama-3.1-405b:free'
     ];
 
-    const tryGenerate = async (modelName: string, maxTokens: number = 8192): Promise<CodeGenerationResult> => {
+        const tryGenerate = async (modelName: string, maxTokens: number = 8192): Promise<CodeGenerationResult> => {
+        const isNvidia = modelName.startsWith('nvidia/') || (config.nvidia_models && config.nvidia_models.includes(modelName));
+        const endpoint = isNvidia
+            ? "https://integrate.api.nvidia.com/v1/chat/completions"
+            : "https://openrouter.ai/api/v1/chat/completions";
+        const apiKey = isNvidia ? config.nvidia_api_key : config.openrouter_api_key;
+
+        if (!apiKey || apiKey === "YOUR_OPENROUTER_KEY_HERE" || apiKey === "YOUR_NVIDIA_KEY_HERE") {
+            throw new Error(`API Key not configured for ${modelName}`);
+        }
+
+        // Define function tool for web search
+        const searchTool = {
+            type: "function",
+            function: {
+                name: "search_web",
+                description: "Search the web for up-to-date documentation, API references, library versions, code examples, or troubleshooting details.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        query: { type: "string", description: "Search query" }
+                    },
+                    required: ["query"]
+                }
+            }
+        };
+
+        // Prepare request payload
+        const requestPayload: any = {
+            model: modelName,
+            messages: messages,
+            temperature: 0.7,
+            max_tokens: maxTokens,
+            functions: [searchTool],
+            function_call: "auto"
+        };
+
+        // Loop to handle potential function calls until final response
+        let emptyRetryCount = 0;
+        while (true) {
+            const response = await axios.post(endpoint, requestPayload, {
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://velix.snapgrids.store"
+                }
+            });
+            const msg = response.data.choices[0].message;
+
+            // If the model wants to call a function
+            if (msg?.function_call) {
+                const fnName = msg.function_call.name;
+                let args: any = {};
+                try {
+                    args = JSON.parse(msg.function_call.arguments);
+                } catch (e) {
+                    console.warn("Failed to parse function arguments", e);
+                }
+                if (fnName === "search_web" && args.query) {
+                    console.log(`[AIService] Performing web search for: ${args.query}`);
+                    const result = await WebSearchService.searchWeb(args.query);
+                    searchQueries.push(args.query);
+                    if (result?.title && result?.url) {
+                        searchSources.push({ title: result.title, url: result.url });
+                    }
+                    // Append assistant function call and function result to the conversation
+                    messages.push({ role: "assistant", content: null, function_call: msg.function_call });
+                    messages.push({ role: "function", name: fnName, content: JSON.stringify(result) });
+                    requestPayload.messages = messages;
+                    // After providing function result, clear functions and request final response without function calls
+                    requestPayload.functions = [];
+                    requestPayload.function_call = "none";
+                    continue; // Continue loop with updated messages
+                } else {
+                    console.warn(`[AIService] Unknown function ${fnName}`);
+                }
+            }
+
+            // Final response from assistant
+            const rawResponse = msg?.content || "";
+            // If the assistant returns an empty response without content or function calls, retry a limited number of times
+            if (!rawResponse.trim()) {
+                emptyRetryCount++;
+                if (emptyRetryCount > 3) {
+                    console.error("AI returned empty response after multiple retries. Aborting.");
+                    throw new Error("Empty AI response after retries");
+                }
+                console.warn(`AI returned empty response, retrying (${emptyRetryCount})...`);
+                continue;
+            }
+            console.log("----------------------------------------------------------------");
+            console.log("RAW AI RESPONSE START");
+            console.log(rawResponse);
+            console.log("RAW AI RESPONSE END");
+            console.log("----------------------------------------------------------------");
+
+            const files = parseAICodeResponse(rawResponse);
+            console.log(`Parsed ${files.length} files from response`);
+
+            return {
+                files,
+                rawResponse,
+                model: response.data.model,
+                searchQueries: searchQueries.length > 0 ? searchQueries : undefined,
+                searchSources: searchSources.length > 0 ? searchSources : undefined
+            };
+        }
+    };
         const isNvidia = modelName.startsWith('nvidia/') || (config.nvidia_models && config.nvidia_models.includes(modelName));
         const endpoint = isNvidia
             ? "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -541,17 +654,6 @@ Common imports for Paper plugins:
 
 ## PACKAGE NAMING
 Derive from plugin name: TPAPlugin -> com.tpa, AutoFish -> com.autofish, LifeSteal -> com.lifesteal
-
-## RESPONSE FORMAT
-- Output ONLY file blocks with FILE: header and code fences
-- NO explanations, NO prose, NO markdown commentary
-- EVERY file must be COMPLETE — all imports, all methods, all logic
-- NO placeholders, NO TODOs, NO empty method bodies
-- Code must be syntactically valid Java/Kotlin with zero compilation errors
-
-## DOCUMENTATION REFERENCE
-${cappedDocs}
-
 ## SKILLS REFERENCE
 ${cappedSkills}`;
         }
@@ -606,169 +708,6 @@ ${cappedSkills}`;
             let textContent = finalPrompt;
             if (fileContext && fileContext.length > 0) {
                 const fileSummary = fileContext.map(f => `- ${f.path} (${f.content.length} chars)`).join('\n');
-                textContent = `[PROJECT FILES (${fileContext.length} files)]:\n${fileSummary}\n\n${finalPrompt}`;
-            }
-            messages.push({ role: 'user', content: textContent });
-        }
-
-        const searchTool = {
-            type: "function",
-            function: {
-                name: "search_web",
-                description: "Search the web for up-to-date documentation, API references, library versions, code examples, or troubleshooting details.",
-                parameters: {
-                    type: "object",
-                    properties: {
-                        query: {
-                            type: "string",
-                            description: "The search query, e.g., 'minecraft paper api player relative velocity' or 'npm discord.js fetch members'"
-                        }
-                    },
-                    required: ["query"]
-                }
-            }
-        };
-
-        let response;
-
-        if (enableWebSearch) {
-            try {
-                console.log(`[AIService] Web search enabled. Sending initial prompt with tool options...`);
-                response = await axios.post(endpoint, {
-                    model: modelName,
-                    messages: messages,
-                    tools: [searchTool],
-                    tool_choice: "auto",
-                    temperature: 0.4,
-                    max_tokens: maxTokens
-                }, {
-                    headers: {
-                        "Authorization": `Bearer ${apiKey}`,
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://velix.snapgrids.store",
-                        "X-Title": "Velix"
-                    },
-                    timeout: 120000
-                });
-
-                const choice = response.data.choices[0];
-                const message = choice?.message;
-
-                if (message && message.tool_calls && message.tool_calls.length > 0) {
-                    console.log(`[AIService] AI requested web search tool calls:`, JSON.stringify(message.tool_calls));
-                    messages.push(message);
-
-                    for (const toolCall of message.tool_calls) {
-                        if (toolCall.function.name === 'search_web') {
-                            let query = '';
-                            try {
-                                const args = JSON.parse(toolCall.function.arguments);
-                                query = args.query;
-                            } catch (err) {
-                                query = toolCall.function.arguments;
-                            }
-
-                            if (query) {
-                                const searchResults = await WebSearchService.searchWeb(query);
-                                // Track search for frontend display
-                                searchQueries.push(query);
-                                searchResults.forEach(r => searchSources.push({ title: r.title, url: r.url }));
-
-                                const searchContext = searchResults.length > 0
-                                    ? `Search Results for "${query}":\n` + searchResults.map(r => `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet}\n---`).join('\n')
-                                    : `No search results found for "${query}".`;
-
-                                messages.push({
-                                    role: "tool",
-                                    tool_call_id: toolCall.id,
-                                    name: "search_web",
-                                    content: searchContext
-                                });
-                            }
-                        }
-                    }
-
-                    console.log(`[AIService] Resending prompt with search results to AI...`);
-                    response = await axios.post(endpoint, {
-                        model: modelName,
-                        messages: messages,
-                        temperature: 0.4,
-                        max_tokens: maxTokens
-                    }, {
-                        headers: {
-                            "Authorization": `Bearer ${apiKey}`,
-                            "Content-Type": "application/json",
-                            "HTTP-Referer": "https://velix.snapgrids.store",
-                            "X-Title": "Velix"
-                        },
-                        timeout: 120000
-                    });
-                }
-            } catch (toolError: any) {
-                console.warn(`[AIService] Tool-use failed or not supported by model:`, toolError.message);
-
-                const keywords = prompt.toLowerCase()
-                    .replace(/[^\w\s]/g, '')
-                    .split(/\s+/)
-                    .filter(k => k.length > 3 && !['create', 'plugin', 'make', 'implement', 'write', 'using', 'build', 'minecraft', 'discord', 'server'].includes(k));
-
-                if (keywords.length > 0) {
-                    const searchQuery = keywords.slice(0, 4).join(' ');
-                    console.log(`[AIService] Fallback pre-search executing for query: "${searchQuery}"`);
-                    const searchResults = await WebSearchService.searchWeb(searchQuery);
-
-                    // Track search for frontend display
-                    searchQueries.push(searchQuery);
-                    searchResults.forEach(r => searchSources.push({ title: r.title, url: r.url }));
-
-                    if (searchResults.length > 0) {
-                        const searchContext = `\n=== ADDITIONAL SEARCH CONTEXT ===\n${searchResults.map(r => `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet}\n---`).join('\n')}\n`;
-                        messages[0].content = messages[0].content + searchContext;
-                    }
-                }
-
-                const totalChars = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
-                console.log(`[AIService] Sending to ${modelName}: ${messages.length} messages, ~${totalChars} chars (~${Math.ceil(totalChars/4)} tokens)`);
-
-                response = await axios.post(endpoint, {
-                    model: modelName,
-                    messages: messages,
-                    temperature: 0.4,
-                    max_tokens: maxTokens
-                }, {
-                    headers: {
-                        "Authorization": `Bearer ${apiKey}`,
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://velix.snapgrids.store",
-                        "X-Title": "Velix"
-                    },
-                    timeout: 120000
-                });
-            }
-        } else {
-            // Standard call without tools
-            response = await axios.post(endpoint, {
-                model: modelName,
-                messages: messages,
-                temperature: 0.4,
-                max_tokens: 8192
-            }, {
-                headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://velix.snapgrids.store",
-                    "X-Title": "Velix"
-                },
-                timeout: 120000
-            });
-        }
-
-        const rawResponse = response.data.choices[0]?.message?.content || "";
-        console.log("----------------------------------------------------------------");
-        console.log("RAW AI RESPONSE START");
-        console.log(rawResponse);
-        console.log("RAW AI RESPONSE END");
-        console.log("----------------------------------------------------------------");
 
         const files = parseAICodeResponse(rawResponse);
         console.log(`Parsed ${files.length} files from response`);
@@ -925,41 +864,6 @@ ${platformContext ? `\n\nAVAILABLE DOCUMENTATION AND SKILLS:\n${platformContext.
         const tryModel = ENHANCE_MODELS[attempt];
         try {
             if (attempt > 0) {
-                console.log(`[AIService] Enhance retry with fallback model: ${tryModel}`);
-                await new Promise(r => setTimeout(r, 3000));
-            } else {
-                console.log(`[AIService] Enhancing prompt for platform: ${platform || 'generic'}...`);
-            }
-            const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-                model: tryModel,
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: prompt }
-                ],
-                temperature: 0.4,
-                max_tokens: 3000
-            }, {
-                headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://velix.snapgrids.store",
-                    "X-Title": "Velix AI"
-                },
-                timeout: 45000
-            });
-
-            const enhanced = response.data.choices[0]?.message?.content?.trim();
-            if (enhanced) {
-                console.log(`[AIService] Prompt enhanced successfully with ${tryModel}`);
-                return enhanced;
-            }
-            return prompt;
-        } catch (error: any) {
-            const errMsg = error.response?.data?.error?.message || error.message || '';
-            const isRateLimit = error.response?.status === 429 || errMsg.includes('rate limit');
-            console.warn(`[AIService] Enhance attempt ${attempt + 1} failed (${tryModel}):`, errMsg);
-            if (!isRateLimit) break; // Non-rate-limit error, don't retry
-        }
     }
     // All enhance models failed — return original prompt
     console.warn('[AIService] All enhance models failed, using original prompt');

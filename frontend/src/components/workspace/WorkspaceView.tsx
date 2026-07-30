@@ -120,6 +120,7 @@ export const WorkspaceView = ({ sessionId, initialLanguage: incomingLanguage, in
     const [model, setModel] = useState<string>(incomingModel || 'priyx-ultra');
     const [modelTiers, setModelTiers] = useState<{
         lite: { name: string; description: string; models: any[] };
+        pro?: { name: string; description: string; models: any[] };
         ultra: { name: string; description: string; models: any[] };
         max: { name: string; description: string; models: any[] };
     } | null>(null);
@@ -1342,11 +1343,11 @@ export const WorkspaceView = ({ sessionId, initialLanguage: incomingLanguage, in
 
                                     {/* Tier Cards */}
                                     <div className="space-y-3 mb-4">
-                                        {/* Priyx Lite */}
+                                        {/* Velix Lite */}
                                         <button
-                                            onClick={() => handleModelChange('priyx-lite')}
+                                            onClick={() => handleModelChange('velix-lite')}
                                             className={`w-full text-left neu-inset rounded-xl p-4 transition-all ${
-                                                model === 'priyx-lite' ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-muted/30'
+                                                model === 'velix-lite' || model === 'priyx-lite' ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-muted/30'
                                             }`}
                                         >
                                             <div className="flex items-center justify-between mb-1">
@@ -1354,11 +1355,11 @@ export const WorkspaceView = ({ sessionId, initialLanguage: incomingLanguage, in
                                                     <div className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
                                                         <span className="text-[10px] font-bold text-emerald-400">L</span>
                                                     </div>
-                                                    <span className="text-sm font-bold text-foreground">Priyx Lite</span>
+                                                    <span className="text-sm font-bold text-foreground">Velix Lite</span>
                                                 </div>
-                                                <span className="px-2 py-0.5 text-[9px] font-bold uppercase bg-emerald-500/15 text-emerald-400 rounded">Free</span>
+                                                <span className="px-2 py-0.5 text-[9px] font-bold uppercase bg-emerald-500/15 text-emerald-400 rounded">Free & Fast</span>
                                             </div>
-                                            <p className="text-[11px] text-muted ml-8">Fast & free — lightweight models for quick tasks</p>
+                                            <p className="text-[11px] text-muted ml-8">Lightweight, fast & free models for quick code generation tasks</p>
                                             {modelTiers?.lite?.models && modelTiers.lite.models.length > 0 && (
                                                 <div className="mt-2 ml-8 flex flex-wrap gap-1">
                                                     {modelTiers.lite.models.slice(0, 3).map((m: any) => (
@@ -1371,40 +1372,37 @@ export const WorkspaceView = ({ sessionId, initialLanguage: incomingLanguage, in
                                             )}
                                         </button>
 
-                                        {/* Priyx Ultra */}
+                                        {/* Velix Pro */}
                                         <button
-                                            onClick={() => handleModelChange('priyx-ultra')}
+                                            onClick={() => handleModelChange('velix-pro')}
                                             className={`w-full text-left neu-inset rounded-xl p-4 transition-all ${
-                                                model === 'priyx-ultra' ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-muted/30'
+                                                model === 'velix-pro' || model === 'priyx-ultra' || model === 'velix-ultra' ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-muted/30'
                                             }`}
                                         >
                                             <div className="flex items-center justify-between mb-1">
                                                 <div className="flex items-center gap-2">
-                                                    <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
-                                                        <span className="text-[10px] font-bold text-primary">U</span>
+                                                    <div className="w-6 h-6 rounded-full bg-indigo-500/20 flex items-center justify-center">
+                                                        <span className="text-[10px] font-bold text-indigo-400">P</span>
                                                     </div>
-                                                    <span className="text-sm font-bold text-foreground">Priyx Ultra</span>
+                                                    <span className="text-sm font-bold text-foreground">Velix Pro</span>
                                                 </div>
-                                                <span className="px-2 py-0.5 text-[9px] font-bold uppercase bg-primary/15 text-primary rounded">Recommended</span>
+                                                <span className="px-2 py-0.5 text-[9px] font-bold uppercase bg-indigo-500/15 text-indigo-400 rounded">Recommended</span>
                                             </div>
-                                            <p className="text-[11px] text-muted ml-8">High-quality free models for serious coding</p>
-                                            {modelTiers?.ultra?.models && modelTiers.ultra.models.length > 0 && (
+                                            <p className="text-[11px] text-muted ml-8">High-quality free models from OpenRouter & NVIDIA for complex coding</p>
+                                            {(modelTiers?.pro?.models || modelTiers?.ultra?.models) && (
                                                 <div className="mt-2 ml-8 flex flex-wrap gap-1">
-                                                    {modelTiers.ultra.models.slice(0, 3).map((m: any) => (
+                                                    {(modelTiers.pro?.models || modelTiers.ultra?.models || []).slice(0, 3).map((m: any) => (
                                                         <span key={m.id} className="px-1.5 py-0.5 text-[8px] text-faint bg-surface-sunk rounded">{m.id.split('/').pop()?.replace(/:free/g, '')}</span>
                                                     ))}
-                                                    {modelTiers.ultra.models.length > 3 && (
-                                                        <span className="px-1.5 py-0.5 text-[8px] text-faint bg-surface-sunk rounded">+{modelTiers.ultra.models.length - 3}</span>
-                                                    )}
                                                 </div>
                                             )}
                                         </button>
 
-                                        {/* Priyx Max */}
+                                        {/* Velix Max */}
                                         <button
-                                            onClick={() => handleModelChange('priyx-max')}
+                                            onClick={() => handleModelChange('velix-max')}
                                             className={`w-full text-left neu-inset rounded-xl p-4 transition-all ${
-                                                model === 'priyx-max' ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-muted/30'
+                                                model === 'velix-max' || model === 'priyx-max' ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-muted/30'
                                             }`}
                                         >
                                             <div className="flex items-center justify-between mb-1">
@@ -1412,11 +1410,11 @@ export const WorkspaceView = ({ sessionId, initialLanguage: incomingLanguage, in
                                                     <div className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center">
                                                         <span className="text-[10px] font-bold text-amber-400">M</span>
                                                     </div>
-                                                    <span className="text-sm font-bold text-foreground">Priyx Max</span>
+                                                    <span className="text-sm font-bold text-foreground">Velix Max</span>
                                                 </div>
-                                                <span className="px-2 py-0.5 text-[9px] font-bold uppercase bg-amber-500/15 text-amber-400 rounded">Best</span>
+                                                <span className="px-2 py-0.5 text-[9px] font-bold uppercase bg-amber-500/15 text-amber-400 rounded">Best Power</span>
                                             </div>
-                                            <p className="text-[11px] text-muted ml-8">Best available models — randomly selected from OpenRouter & NVIDIA</p>
+                                            <p className="text-[11px] text-muted ml-8">Best available models — randomly selected from OpenRouter & NVIDIA NIM</p>
                                             {modelTiers?.max?.models && modelTiers.max.models.length > 0 && (
                                                 <div className="mt-2 ml-8 flex flex-wrap gap-1">
                                                     {modelTiers.max.models.slice(0, 4).map((m: any) => (

@@ -20,19 +20,120 @@ import { cacheService } from '../services/CacheService';
 const router = Router();
 
 /**
- * Enhance prompt into a specification
+ * Plan mode: Generate clarifying questions & project blueprint
  */
-router.post('/enhance-prompt', asyncHandler(async (req, res) => {
-    const { prompt, platform, language } = req.body;
+router.post('/plan', asyncHandler(async (req, res) => {
+    const { prompt, platform, language, model } = req.body;
     if (!prompt) return res.status(400).json({ error: "Prompt is required" });
 
     try {
-        const enhanced = await enhancePrompt(prompt, platform, language);
-        res.json({ enhanced });
+        const isNvidia = model && (model.startsWith('nvidia/') || model.includes('nemotron'));
+        const endpoint = isNvidia ? "https://integrate.api.nvidia.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+        const apiKey = isNvidia ? process.env.NVIDIA_API_KEY || config.nvidia_api_key : process.env.OPENROUTER_API_KEY || config.openrouter_api_key;
+        const selectedModel = model || 'qwen/qwen3-coder:free';
+
+        const systemPrompt = `You are a senior software architect creating an interactive plan for a user project.
+Respond ONLY with a valid JSON object (no markdown surrounding text) matching this schema:
+{
+  "questions": [
+    {
+      "id": "q1",
+      "question": "Clear question about scope or preferences for this project?",
+      "options": [
+        "First option with brief description",
+        "Second option with brief description",
+        "Third option with brief description"
+      ]
+    }
+  ],
+  "plan": {
+    "title": "Short title for what will be built",
+    "summary": "2-3 sentence overview of the architecture and approach",
+    "components": [
+      { "name": "Component/Page name", "desc": "Brief details of what this includes" }
+    ],
+    "designDirection": [
+      "Key design/tech stack decision 1",
+      "Key design/tech stack decision 2"
+    ]
+  }
+}
+
+Generate 1-2 practical, high-value questions for the user to refine requirements. Keep options concise and clear.`;
+
+        const response = await axios.post(endpoint, {
+            model: selectedModel,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `Platform: ${platform || 'web'}\nLanguage: ${language || 'typescript'}\nUser Request: ${prompt}` }
+            ],
+            temperature: 0.4,
+            max_tokens: 1500
+        }, {
+            headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "Content-Type": "application/json"
+            },
+            timeout: 30000
+        });
+
+        const rawContent = response.data.choices[0]?.message?.content || "";
+        let jsonResult: any = null;
+        try {
+            const cleanJson = rawContent.replace(/```json\n?|\n?```/g, '').trim();
+            jsonResult = JSON.parse(cleanJson);
+        } catch {
+            jsonResult = {
+                questions: [
+                    {
+                        id: "q1",
+                        question: `How much of ${prompt.slice(0, 50)}... should I build now?`,
+                        options: [
+                            "Full project implementation with all core features",
+                            "Basic prototype / starter template",
+                            "Frontend / API component only"
+                        ]
+                    }
+                ],
+                plan: {
+                    title: `Plan for ${prompt.slice(0, 40)}`,
+                    summary: `Comprehensive implementation plan for ${prompt}`,
+                    components: [
+                        { name: "Core Application Logic", desc: "Main features and data structures" },
+                        { name: "UI / Configuration", desc: "User interface and settings" }
+                    ],
+                    designDirection: ["Modern architecture", "Clean code patterns"]
+                }
+            };
+        }
+
+        res.json(jsonResult);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        console.error('[AI Routes] /plan failed:', error.message);
+        res.json({
+            questions: [
+                {
+                    id: "q1",
+                    question: "What scope would you like to build first?",
+                    options: [
+                        "Complete full-featured implementation",
+                        "Minimal viable prototype",
+                        "Modular component architecture"
+                    ]
+                }
+            ],
+            plan: {
+                title: "Project Implementation Blueprint",
+                summary: `Architecture blueprint for ${prompt}`,
+                components: [
+                    { name: "Main System", desc: "Core implementation files" }
+                ],
+                designDirection: ["High performance", "Clean modular structure"]
+            }
+        });
     }
 }));
+
 
 /**
  * Generate code with AI (returns structured file data)
@@ -406,78 +507,77 @@ router.get('/models', asyncHandler(async (req, res) => {
             'openai/gpt-oss-20b:free',
             'google/gemma-4-26b-a4b-it:free',
             'google/gemma-4-31b-it:free',
+            'cohere/north-mini-code:free',
+            'nvidia/nemotron-nano-9b-v2:free',
             'meta-llama/llama-3.3-70b-instruct:free',
         ];
 
-        const ULTRA_MODELS = [
+        const PRO_MODELS = [
             'qwen/qwen3-coder:free',
             'qwen/qwen3-next-80b-a3b-instruct:free',
             'openai/gpt-oss-120b:free',
             'nousresearch/hermes-3-llama-3.1-405b:free',
             'nvidia/nemotron-3-super-120b-a12b:free',
+            'deepseek-ai/deepseek-coder-6.7b-instruct',
+            'bigcode/starcoder2-15b',
         ];
 
-        // Admin override: comma-separated list of additional model IDs to allow
+        // All allowed free models
         const extraModels = (process.env.EXTRA_ALLOWED_MODELS || '').split(',').map(s => s.trim()).filter(Boolean);
+        const ALL_ALLOWED_FREE = [...LITE_MODELS, ...PRO_MODELS, ...extraModels];
 
-        // All allowed free models (lite + ultra + extras)
-        const ALL_ALLOWED_FREE = [...LITE_MODELS, ...ULTRA_MODELS, ...extraModels];
-
-        // Filter: keep all NVIDIA models + curated free models
+        // Filter: keep all NVIDIA models + fetched free models
         const filtered = all.filter(m => {
             if (m.provider === 'nvidia') return true;
-            if (m.id.endsWith(':free')) return ALL_ALLOWED_FREE.includes(m.id);
-            return false;
+            if (m.id.endsWith(':free')) return true;
+            return true;
         });
 
+        const fallback = (config.nvidia_models || []).map((m: string) => ({
+            id: m,
+            name: m.split('/').pop()?.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) || m,
+            description: 'NVIDIA NIM model',
+            context_length: 131072,
+            provider: 'nvidia' as const
+        }));
+
+        const finalFlatList = filtered.length > 0 ? filtered : fallback;
+
         // Separate by tier
-        const liteModels = filtered.filter(m => LITE_MODELS.includes(m.id));
-        const ultraModels = filtered.filter(m => ULTRA_MODELS.includes(m.id));
-        // Max tier = all NVIDIA models + best OpenRouter models
-        const maxModels = filtered.filter(m =>
-            m.provider === 'nvidia' || ULTRA_MODELS.includes(m.id)
-        );
+        const liteModels = finalFlatList.filter((m: any) => LITE_MODELS.includes(m.id) || m.id.includes('nano') || m.id.includes('mini') || m.id.includes('20b') || m.id.includes('26b'));
+        const proModels = finalFlatList.filter((m: any) => PRO_MODELS.includes(m.id) || m.id.includes('coder') || m.id.includes('120b') || m.id.includes('70b'));
+        const maxModels = finalFlatList;
 
-        console.log(`[AI Routes] Models: ${all.length} total → Lite: ${liteModels.length}, Ultra: ${ultraModels.length}, Max: ${maxModels.length}`);
-
-        // If no models fetched, use config fallbacks
-        if (liteModels.length === 0 && ultraModels.length === 0 && maxModels.length === 0) {
-            const fallback = (config.nvidia_models || []).map((m: string) => ({
-                id: m,
-                name: m.split('/').pop()?.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) || m,
-                description: 'NVIDIA NIM model',
-                context_length: 131072,
-                provider: 'nvidia' as const
-            }));
-            return res.json({
-                tiers: {
-                    lite: { name: 'Priyx Lite', description: 'Fast & free lightweight models', models: [] },
-                    ultra: { name: 'Priyx Ultra', description: 'High-quality free models', models: [] },
-                    max: { name: 'Priyx Max', description: 'Best available models — randomly selected', models: fallback }
-                },
-                flat: fallback
-            });
-        }
+        console.log(`[AI Routes] Models: ${all.length} total → Lite: ${liteModels.length}, Pro: ${proModels.length}, Max: ${maxModels.length}`);
 
         res.json({
             tiers: {
                 lite: {
-                    name: 'Priyx Lite',
-                    description: 'Fast & free — lightweight models for quick tasks',
-                    models: liteModels
+                    id: 'velix-lite',
+                    name: 'Velix Lite',
+                    description: 'Fast, lightweight & free models for quick tasks',
+                    models: liteModels.length > 0 ? liteModels : finalFlatList
                 },
-                ultra: {
-                    name: 'Priyx Ultra',
-                    description: 'High-quality free models for serious coding',
-                    models: ultraModels
+                pro: {
+                    id: 'velix-pro',
+                    name: 'Velix Pro',
+                    description: 'High-quality free models from OpenRouter & NVIDIA for serious coding',
+                    models: proModels.length > 0 ? proModels : finalFlatList
+                },
+                ultra: { // backward compatibility alias for pro
+                    id: 'velix-pro',
+                    name: 'Velix Pro',
+                    description: 'High-quality free models from OpenRouter & NVIDIA for serious coding',
+                    models: proModels.length > 0 ? proModels : finalFlatList
                 },
                 max: {
-                    name: 'Priyx Max',
+                    id: 'velix-max',
+                    name: 'Velix Max',
                     description: 'Best available models — randomly selected from OpenRouter & NVIDIA',
                     models: maxModels
                 }
             },
-            flat: filtered
+            flat: finalFlatList
         });
     } catch (err) {
         console.error('[AI Routes] /models error:', err);
@@ -490,9 +590,10 @@ router.get('/models', asyncHandler(async (req, res) => {
         }));
         res.json({
             tiers: {
-                lite: { name: 'Priyx Lite', description: 'Fast & free lightweight models', models: [] },
-                ultra: { name: 'Priyx Ultra', description: 'High-quality free models', models: [] },
-                max: { name: 'Priyx Max', description: 'Best available models — randomly selected', models: fallback }
+                lite: { id: 'velix-lite', name: 'Velix Lite', description: 'Fast & free lightweight models', models: fallback },
+                pro: { id: 'velix-pro', name: 'Velix Pro', description: 'High-quality free models', models: fallback },
+                ultra: { id: 'velix-pro', name: 'Velix Pro', description: 'High-quality free models', models: fallback },
+                max: { id: 'velix-max', name: 'Velix Max', description: 'Best available models', models: fallback }
             },
             flat: fallback
         });

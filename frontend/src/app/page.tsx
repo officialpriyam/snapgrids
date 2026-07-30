@@ -17,6 +17,7 @@ import {
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChatPanel } from '@/components/ChatPanel';
+import { ModelSelector } from '@/components/ModelSelector';
 import { ProjectTypeModal } from '@/components/ProjectTypeModal';
 import { TopHeader, useAuth, SharedModals, Footer, cn } from '@/components/AppShell';
 import { fileApi, aiApi } from '@/lib/api';
@@ -180,33 +181,10 @@ function HomeContent() {
                                     compact={true}
                                     onPromptSubmit={handleHomePromptSubmit}
                                     modelDropdown={
-                                        <div className="relative w-fit">
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); setShowModelDropdown(!showModelDropdown); }}
-                                                className="rounded-full border border-[hsl(var(--surface-sunk))] bg-[hsl(var(--surface-sunk))] px-3 py-1.5 text-xs text-foreground/70 flex items-center gap-1.5 hover:text-foreground transition-all"
-                                            >
-                                                <Sparkles className="w-3 h-3 text-foreground/60" />
-                                                <span>{selectedModelName}</span>
-                                                <ChevronDown className="w-3 h-3 text-zinc-500" />
-                                            </button>
-                                            {showModelDropdown && (
-                                                <div className="absolute top-full left-0 mt-2 rounded-xl border border-[hsl(var(--surface-sunk))] bg-[hsl(var(--surface))] p-2 w-[220px] z-50 shadow-xl" onClick={(e) => e.stopPropagation()}>
-                                                    {MODEL_TIERS.map(tier => (
-                                                        <button
-                                                            key={tier.id}
-                                                            onClick={() => { setModel(tier.id); setShowModelDropdown(false); }}
-                                                            className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all ${model === tier.id ? 'bg-[hsl(var(--surface-sunk))] text-foreground font-bold' : 'text-foreground/60 hover:bg-[hsl(var(--surface-sunk))] hover:text-foreground'}`}
-                                                        >
-                                                            <div className="flex items-center gap-2">
-                                                                <div className={`w-2 h-2 rounded-full ${tier.color === 'emerald' ? 'bg-emerald-400' : tier.color === 'primary' ? 'bg-primary' : 'bg-amber-400'}`} />
-                                                                <span>{tier.name}</span>
-                                                            </div>
-                                                            <div className="text-[10px] text-foreground/40 ml-4 mt-0.5">{tier.desc}</div>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
+                                        <ModelSelector
+                                            selectedModel={model}
+                                            onSelectModel={setModel}
+                                        />
                                     }
                                     typeDropdown={
                                         <button
