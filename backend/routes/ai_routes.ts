@@ -19,8 +19,104 @@ import { cacheService } from '../services/CacheService';
 
 const router = Router();
 
+function resolvePlanModel(model?: string) {
+    const m = model || '';
+    if (['priyx-lite', 'velix-lite', 'lite'].includes(m)) return 'openai/gpt-oss-20b:free';
+    if (['priyx-max', 'velix-max', 'max'].includes(m)) return 'openai/gpt-oss-120b:free';
+    if (!model || ['priyx-ultra', 'velix-pro', 'velix-ultra', 'pro', 'ultra'].includes(m)) return 'qwen/qwen3-coder:free';
+    return model;
+}
+
+function planModelCandidates(model?: string) {
+    const primary = resolvePlanModel(model);
+    return Array.from(new Set([
+        primary,
+        'qwen/qwen3-next-80b-a3b-instruct:free',
+        'openai/gpt-oss-120b:free',
+        'qwen/qwen3-coder:free',
+        ...(config.nvidia_models || []).slice(0, 2)
+    ].filter(Boolean)));
+}
+
+function extractJsonObject(raw: string) {
+    const cleaned = raw.replace(/```json\s*|\s*```/g, '').trim();
+    try { return JSON.parse(cleaned); } catch {}
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+        return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw new Error('AI did not return valid plan JSON');
+}
+
+function normalizePlanResult(result: any, prompt: string) {
+    if (!result?.plan) throw new Error('AI plan response missing plan');
+    const promptTopic = prompt.replace(/https?:\/\/[^\s]+/g, '').trim() || prompt;
+    const plan = {
+        title: String(result.plan.title || `Plan for ${promptTopic.slice(0, 60)}`),
+        summary: String(result.plan.summary || `Implementation plan for ${prompt}`),
+        components: Array.isArray(result.plan.components) && result.plan.components.length
+            ? result.plan.components.slice(0, 8).map((component: any, index: number) => ({
+                name: String(component.name || `Step ${index + 1}`),
+                desc: String(component.desc || component.description || 'Implementation detail')
+            }))
+            : [
+                { name: 'Core experience', desc: 'Primary feature flow requested by the user' },
+                { name: 'Project files', desc: 'Generated implementation and supporting configuration' }
+            ],
+        designDirection: Array.isArray(result.plan.designDirection) && result.plan.designDirection.length
+            ? result.plan.designDirection.slice(0, 8).map((item: any) => String(item))
+            : ['Use the existing project structure', 'Keep the implementation focused and shippable']
+    };
+    const questions = Array.isArray(result.questions) && result.questions.length
+        ? result.questions.slice(0, 3).map((question: any, index: number) => ({
+            id: String(question.id || `q${index + 1}`),
+            question: String(question.question || `Choose the preferred scope for ${plan.title}`),
+            options: (Array.isArray(question.options) && question.options.length ? question.options : ['Complete working version', 'Core feature only', 'Just scaffold it', 'Write your own...']).map((option: any) => String(option))
+        }))
+        : [{
+            id: 'q1',
+            question: `How much should I build now for ${plan.title}?`,
+            options: ['Complete working version', 'Core feature only', 'Just scaffold it', 'Write your own...']
+        }];
+    return { plan, questions };
+}
+
+function formatPlanMarkdown(plan: any, questions: any[] = [], answers: Record<string, string> = {}) {
+    const lines = [`# ${plan?.title || 'Project Plan'}`, '', plan?.summary || ''];
+    if (plan?.components?.length) {
+        lines.push('', '## What I’ll build', '');
+        for (const component of plan.components) lines.push(`- **${component.name}** — ${component.desc}`);
+    }
+    if (plan?.designDirection?.length) {
+        lines.push('', '## Design direction', '');
+        for (const item of plan.designDirection) lines.push(`- ${item}`);
+    }
+    if (questions.length) {
+        lines.push('', '## Decisions to confirm', '');
+        for (const question of questions) {
+            const answer = answers[question.id];
+            lines.push(`- ${question.question}${answer ? `\n  - Selected: ${answer.replace(/^custom:/, '')}` : ''}`);
+        }
+    }
+    return lines.join('\n');
+}
+
 async function requireProjectEditor(sessionId: string, userId: string) {
     const access = await dbService.isProjectAccessible(sessionId, userId);
+    // The workspace can be opened before its first generation creates the
+    // database row.  Treat that specific, authenticated first use as project
+    // creation; do not apply this to an existing project owned by somebody
+    // else, which must still pass the role check below.
+    if (!access.project) {
+        await dbService.createProject({
+            id: sessionId,
+            userId,
+            name: 'New Project',
+            language: 'java'
+        });
+        return { accessible: true, role: 'owner', project: { id: sessionId, user_id: userId } };
+    }
     if (!access.accessible || !access.role || access.role === 'viewer') {
         const error: any = new Error('You do not have permission to change this project conversation.');
         error.status = 403;
@@ -33,15 +129,19 @@ async function requireProjectEditor(sessionId: string, userId: string) {
  * Plan mode: Generate clarifying questions & project blueprint
  */
 router.post('/plan', asyncHandler(requireAuth), asyncHandler(async (req, res) => {
-    const { prompt, platform, language, model, sessionId } = req.body;
+    const { prompt, platform, language, model, sessionId, enableWebSearch } = req.body;
     if (!prompt || !sessionId) return res.status(400).json({ error: "Prompt and sessionId are required" });
     await requireProjectEditor(sessionId, req.auth!.userId);
 
     try {
-        const isNvidia = model && (model.startsWith('nvidia/') || model.includes('nemotron'));
-        const endpoint = isNvidia ? "https://integrate.api.nvidia.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-        const apiKey = isNvidia ? process.env.NVIDIA_API_KEY || config.nvidia_api_key : process.env.OPENROUTER_API_KEY || config.openrouter_api_key;
-        const selectedModel = model || 'qwen/qwen3-coder:free';
+        let searchSources: { title: string; url: string; snippet: string }[] = [];
+        if (enableWebSearch) {
+            try { searchSources = await WebSearchService.searchWeb(prompt); }
+            catch (searchError: any) { console.warn('[AI Routes] Plan web search failed:', searchError.message); }
+        }
+        const webContext = searchSources.length
+            ? `\n\nWeb research (use only when relevant):\n${searchSources.slice(0, 5).map(item => `- ${item.title}: ${item.snippet} (${item.url})`).join('\n')}`
+            : '';
 
         const systemPrompt = `You are a senior software architect creating an interactive plan for a user project.
 Respond ONLY with a valid JSON object (no markdown surrounding text) matching this schema:
@@ -72,23 +172,47 @@ Respond ONLY with a valid JSON object (no markdown surrounding text) matching th
 
 Generate 1-2 practical, high-value questions for the user to refine requirements. Keep options concise and clear.`;
 
-        const response = await axios.post(endpoint, {
-            model: selectedModel,
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Platform: ${platform || 'web'}\nLanguage: ${language || 'typescript'}\nUser Request: ${prompt}` }
-            ],
-            temperature: 0.4,
-            max_tokens: 1500
-        }, {
-            headers: {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json"
-            },
-            timeout: 30000
-        });
+        let rawContent = "";
+        let jsonResult: any = null;
+        let modelUsed = "";
+        let lastPlanError: any = null;
+        for (const candidate of planModelCandidates(model)) {
+            const isNvidia = candidate.startsWith('nvidia/') || candidate.includes('nemotron') || (config.nvidia_models || []).includes(candidate);
+            const endpoint = isNvidia ? "https://integrate.api.nvidia.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+            const apiKey = isNvidia ? process.env.NVIDIA_API_KEY || config.nvidia_api_key : process.env.OPENROUTER_API_KEY || config.openrouter_api_key;
+            if (!apiKey || apiKey.includes('YOUR_')) {
+                lastPlanError = new Error(`${isNvidia ? 'NVIDIA' : 'OpenRouter'} API key is missing`);
+                continue;
+            }
+            try {
+                const response = await axios.post(endpoint, {
+                    model: candidate,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: `Platform: ${platform || 'web'}\nLanguage: ${language || 'typescript'}\nUser Request: ${prompt}${webContext}` }
+                    ],
+                    temperature: 0.35,
+                    max_tokens: 2200
+                }, {
+                    headers: {
+                        "Authorization": `Bearer ${apiKey}`,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://velix.snapgrids.store",
+                        "X-Title": "Velix"
+                    },
+                    timeout: 45000
+                });
+                rawContent = response.data.choices[0]?.message?.content || "";
+                jsonResult = normalizePlanResult(extractJsonObject(rawContent), prompt);
+                modelUsed = response.data.model || candidate;
+                break;
+            } catch (planError: any) {
+                lastPlanError = planError;
+                console.warn(`[AI Routes] Plan model ${candidate} failed:`, planError.message);
+            }
+        }
+        if (!jsonResult) throw lastPlanError || new Error('Unable to generate an AI plan');
 
-        const rawContent = response.data.choices[0]?.message?.content || "";
         const promptTopic = prompt.replace(/https?:\/\/[^\s]+/g, '').trim() || prompt;
         const cleanTopic = promptTopic.slice(0, 60);
 
@@ -116,24 +240,24 @@ Generate 1-2 practical, high-value questions for the user to refine requirements
             }
         };
 
-        let jsonResult: any = null;
-        try {
-            const cleanJson = rawContent.replace(/```json\n?|\n?```/g, '').trim();
-            jsonResult = JSON.parse(cleanJson);
-        } catch {
-            jsonResult = fallbackResult;
-        }
-
         await dbService.addMessage(sessionId, 'user', prompt, 'message');
-        const saved = await dbService.addMessage(sessionId, 'assistant', jsonResult.plan?.summary || 'Plan ready for review.', 'plan', {
+        let saved = await dbService.addMessage(sessionId, 'assistant', jsonResult.plan?.summary || 'Plan ready for review.', 'plan', {
             plan: jsonResult.plan,
             questions: jsonResult.questions || [],
             answers: {},
-            status: 'awaiting_answers'
+            status: 'awaiting_answers',
+            modelUsed,
+            aiGenerated: true
         });
-        res.json({ ...jsonResult, message: saved?.[0] || null });
+        if (!saved?.[0]?.id) {
+            const rows = await dbService.getMessagesBySessionId(sessionId);
+            saved = rows.filter((item: any) => item.message_type === 'plan').slice(-1);
+        }
+        new SandboxContext(sessionId).writeFile('plan.md', formatPlanMarkdown(jsonResult.plan, jsonResult.questions));
+        res.json({ ...jsonResult, message: saved?.[0] || null, modelUsed, aiGenerated: true, searchQueries: enableWebSearch ? [prompt] : [], searchSources: searchSources.map(({ title, url }) => ({ title, url })) });
     } catch (error: any) {
         console.error('[AI Routes] /plan failed:', error.message);
+        return res.status(502).json({ error: `AI plan generation failed: ${error.message || 'Unable to create plan'}` });
         const promptTopic = prompt.replace(/https?:\/\/[^\s]+/g, '').trim() || prompt;
         const cleanTopic = promptTopic.slice(0, 60);
         const fallback = {
@@ -162,6 +286,7 @@ Generate 1-2 practical, high-value questions for the user to refine requirements
         const saved = await dbService.addMessage(sessionId, 'assistant', fallback.plan.summary, 'plan', {
             plan: fallback.plan, questions: fallback.questions, answers: {}, status: 'awaiting_answers'
         });
+        new SandboxContext(sessionId).writeFile('plan.md', formatPlanMarkdown(fallback.plan, fallback.questions));
         res.json({ ...fallback, message: saved?.[0] || null });
     }
 }));
@@ -178,6 +303,7 @@ router.patch('/plans/:messageId', asyncHandler(requireAuth), asyncHandler(async 
     if (!message) return res.status(404).json({ error: 'Plan not found.' });
     const metadata = { ...(message.metadata || {}), answers: answers || {}, status };
     await dbService.updateMessage(messageId, { metadata });
+    new SandboxContext(sessionId).writeFile('plan.md', formatPlanMarkdown(metadata.plan, metadata.questions, metadata.answers));
     await dbService.addMessage(sessionId, 'assistant', status === 'approved' ? 'Plan approved. Building your project now.' : 'Answers saved. Review and approve the plan when ready.', 'timeline', { event: status, planMessageId: messageId });
     res.json({ success: true, metadata });
 }));
@@ -218,6 +344,7 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
     let creditsRemaining = user.credits;
     let searchQueries: string[] = [];
     let searchSources: { title: string; url: string }[] = [];
+    let genResult: any = null;
 
     if (existingSessionId) await requireProjectEditor(existingSessionId, req.auth!.userId);
     if (fromPlan && (!existingSessionId || !planMessageId)) return res.status(400).json({ error: 'An approved plan is required.' });
@@ -241,10 +368,21 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
         if (chatMode) {
             // Chat mode: conversational response, no code generation
             const tier = model || 'priyx-ultra';
-            const selectedModel = tier;
-            const isNvidia = selectedModel.startsWith('nvidia/');
+            const selectedModel = resolvePlanModel(tier);
+            const isNvidia = selectedModel.startsWith('nvidia/') || selectedModel.includes('nemotron');
             const endpoint = isNvidia ? "https://integrate.api.nvidia.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-            const apiKey = isNvidia ? process.env.NVIDIA_API_KEY : process.env.OPENROUTER_API_KEY;
+            const apiKey = isNvidia ? process.env.NVIDIA_API_KEY || config.nvidia_api_key : process.env.OPENROUTER_API_KEY || config.openrouter_api_key;
+            if (enableWebSearch) {
+                try {
+                    const sources = await WebSearchService.searchWeb(prompt);
+                    searchQueries = [prompt];
+                    searchSources = sources.map(({ title, url }) => ({ title, url }));
+                    const webContext = sources.slice(0, 5).map(item => `- ${item.title}: ${item.snippet} (${item.url})`).join('\n');
+                    history.push({ role: 'system', content: `Web search results for the user's current question:\n${webContext}` });
+                } catch (searchError: any) {
+                    console.warn('[AI Routes] Chat web search failed:', searchError.message);
+                }
+            }
 
             const chatMessages = [
                 { role: 'system', content: 'You are Priyx, a friendly and knowledgeable AI assistant. You help users with coding, Minecraft plugins, Hytale, Discord bots, and general programming questions. Be conversational, helpful, and concise. Do not generate code files - just chat naturally. If the user asks you to create something, explain what you would do and mention that they should switch to Code mode for actual file generation.' },
@@ -275,12 +413,12 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
                 rawResponse = "I'm having trouble connecting right now. Please try again in a moment.";
             }
         } else {
-            const result = await generateCode(prompt, model, context, skipDocs, enableWebSearch === true, history, platform, language, images, fileContext);
-            files = result.files || [];
-            rawResponse = result.rawResponse || '';
-            modelUsed = result.model || model;
-            searchQueries = result.searchQueries || [];
-            searchSources = result.searchSources || [];
+            genResult = await generateCode(prompt, model, context, skipDocs, enableWebSearch === true, history, platform, language, images, fileContext);
+            files = genResult.files || [];
+            rawResponse = genResult.rawResponse || '';
+            modelUsed = genResult.model || model;
+            searchQueries = genResult.searchQueries || [];
+            searchSources = genResult.searchSources || [];
         }
 
         console.log(`[AI Routes] /generate AI completed - ${files.length} files, model: ${modelUsed}${chatMode ? ' (chat mode)' : ''}`);
@@ -431,7 +569,7 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
         creditsRemaining,
         searchQueries: searchQueries.length > 0 ? searchQueries : undefined,
         searchSources: searchSources.length > 0 ? searchSources : undefined,
-        imageWarning: (result as any)?.imageWarning,
+        imageWarning: (genResult as any)?.imageWarning,
         chatMode: chatMode || false
     };
     console.log(`[AI Routes] /generate sending response - files: ${files.length}, payload size: ~${JSON.stringify(responsePayload).length} bytes`);
