@@ -7,6 +7,43 @@ import { cacheService } from '../services/CacheService';
 
 const router = Router();
 
+// Public stats endpoint — no auth required, cached for 5 minutes
+let statsCache: { data: any; ts: number } | null = null;
+const STATS_CACHE_TTL = 5 * 60 * 1000;
+
+router.get('/stats', asyncHandler(async (req, res) => {
+    if (statsCache && Date.now() - statsCache.ts < STATS_CACHE_TTL) {
+        return res.json(statsCache.data);
+    }
+    try {
+        const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+        const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+        const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Prefer: 'count=exact' };
+
+        const [usersRes, projectsRes, creditsRes] = await Promise.all([
+            fetch(`${SUPABASE_URL}/rest/v1/users?select=id`, { headers: { ...headers, Range: '0-0' } }),
+            fetch(`${SUPABASE_URL}/rest/v1/projects?select=id`, { headers: { ...headers, Range: '0-0' } }),
+            fetch(`${SUPABASE_URL}/rest/v1/credits_transactions?select=amount&type=neq.0`, { headers: { ...headers, Range: '0-0' } }),
+        ]);
+
+        const userCount = parseInt(usersRes.headers.get('content-range')?.split('/')[1] || '0', 10) || 0;
+        const projectCount = parseInt(projectsRes.headers.get('content-range')?.split('/')[1] || '0', 10) || 0;
+        const creditCount = parseInt(creditsRes.headers.get('content-range')?.split('/')[1] || '0', 10) || 0;
+
+        const data = {
+            users: userCount,
+            projects: projectCount,
+            generations: creditCount,
+            tokens: creditCount * 4200,
+        };
+        statsCache = { data, ts: Date.now() };
+        res.json(data);
+    } catch (err: any) {
+        console.warn('[Stats] Failed to fetch stats:', err.message);
+        res.json({ users: 0, projects: 0, generations: 0, tokens: 0 });
+    }
+}));
+
 router.post('/register', asyncHandler(async (req, res) => {
     const { email, name, password } = req.body;
     try {

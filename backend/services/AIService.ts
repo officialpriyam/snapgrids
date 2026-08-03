@@ -3,11 +3,23 @@ import config from '../utils/config';
 import { WebSearchService } from './WebSearchService';
 import { DocService } from './DocService';
 import { SkillsService } from './SkillsService';
+import { resolveChatProvider, providerHeaders } from './ModelProviderService';
 
 
 export interface GeneratedFile {
     path: string;
     content: string;
+}
+
+export interface GeneratedCommand {
+    command: string;
+    description?: string;
+}
+
+export interface GeneratedDownload {
+    url: string;
+    path?: string;
+    description?: string;
 }
 
 export interface CodeGenerationResult {
@@ -16,7 +28,10 @@ export interface CodeGenerationResult {
     model: string;
     searchQueries?: string[];
     searchSources?: { title: string; url: string }[];
+    docs?: string[];
     imageWarning?: string;
+    commands?: GeneratedCommand[];
+    downloads?: GeneratedDownload[];
 }
 
 // Velix tier model pools
@@ -27,6 +42,9 @@ const VELIX_LITE_MODELS = [
     'cohere/north-mini-code:free',
     'nvidia/nemotron-nano-9b-v2:free',
     'meta-llama/llama-3.3-70b-instruct:free',
+    'glm/glm-4.6:free',
+    'deepseek-ai/deepseek-coder-v2-lite-instruct:free',
+    'microsoft/phi-3.5-mini-instruct:free',
 ];
 
 const VELIX_PRO_MODELS = [
@@ -37,6 +55,10 @@ const VELIX_PRO_MODELS = [
     'nvidia/nemotron-3-super-120b-a12b:free',
     'deepseek-ai/deepseek-coder-6.7b-instruct',
     'bigcode/starcoder2-15b',
+    'glm/glm-4.6-plus:free',
+    'deepseek-ai/deepseek-v3:free',
+    'nvidia/nemotron-4-340b-a8b:free',
+    'meta-llama/llama-4-90b-instruct:free',
 ];
 
 // Velix Max: top models from OpenRouter + NVIDIA NIM (randomly selected)
@@ -47,6 +69,11 @@ const VELIX_MAX_MODELS = [
     'nousresearch/hermes-3-llama-3.1-405b:free',
     'deepseek-ai/deepseek-v4-pro',
     'nvidia/llama-3.1-nemotron-70b-instruct',
+    'glm/glm-4.6-ultra:free',
+    'deepseek-ai/deepseek-v4:free',
+    'nvidia/nemotron-4-ultra-550b-a55b:free',
+    'meta-llama/llama-4.1-405b-instruct:free',
+    'qwen/qwen3.6-plus:free',
 ];
 
 function resolveModelTier(model?: string): string {
@@ -91,6 +118,18 @@ const MODEL_CHAR_LIMITS: { [key: string]: number } = {
     'google/gemma-4-31b-it:free': 262144,
     'nousresearch/hermes-3-llama-3.1-405b:free': 131072,
     'nvidia/nemotron-3-super-120b-a12b:free': 1000000,
+    'glm/glm-4.6:free': 1000000,
+    'glm/glm-4.6-plus:free': 1000000,
+    'glm/glm-4.6-ultra:free': 1000000,
+    'deepseek-ai/deepseek-coder-v2-lite-instruct:free': 131072,
+    'deepseek-ai/deepseek-v3:free': 1000000,
+    'deepseek-ai/deepseek-v4:free': 1000000,
+    'nvidia/nemotron-4-340b-a8b:free': 1000000,
+    'nvidia/nemotron-4-ultra-550b-a55b:free': 1000000,
+    'meta-llama/llama-4-90b-instruct:free': 131072,
+    'meta-llama/llama-4.1-405b-instruct:free': 131072,
+    'qwen/qwen3.6-plus:free': 1000000,
+    'microsoft/phi-3.5-mini-instruct:free': 131072,
     'anthropic/claude-3-5-sonnet': 150000,
     'openai/gpt-4o': 120000,
     'mistralai/mistral-large': 80000,
@@ -110,7 +149,8 @@ export const generateCode = async (
     platform?: string,
     language?: string,
     images?: Array<{ data: string; mimeType: string }>,
-    fileContext?: Array<{ path: string; content: string }>
+    fileContext?: Array<{ path: string; content: string }>,
+    progress?: (ev: { type: string; message?: string; query?: string; title?: string; url?: string; model?: string; chars?: number; docs?: string[]; path?: string; op?: string; command?: string; description?: string; status?: string; exitCode?: number; output?: string }) => void
 ): Promise<CodeGenerationResult> => {
     // Resolve tier and pick actual model
     const tier = resolveModelTier(model);
@@ -119,17 +159,22 @@ export const generateCode = async (
     // Track web search queries and sources for frontend display
     const searchQueries: string[] = [];
     const searchSources: { title: string; url: string }[] = [];
+    const docsRead: string[] = [];
     let imageWarning: string | undefined = undefined;
 
     // Perform live web search pre-fetch upfront if web search is enabled
     if (enableWebSearch) {
         try {
+            progress?.({ type: 'searching', query: prompt });
             console.log(`[AIService] Live web search enabled for prompt: "${prompt}"`);
             const results = await WebSearchService.searchWeb(prompt);
             if (results && results.length > 0) {
                 searchQueries.push(prompt);
                 results.slice(0, 5).forEach(r => {
-                    if (r.title && r.url) searchSources.push({ title: r.title, url: r.url });
+                    if (r.title && r.url) {
+                        searchSources.push({ title: r.title, url: r.url });
+                        progress?.({ type: 'search', title: r.title, url: r.url });
+                    }
                 });
             }
         } catch (wsErr: any) {
@@ -145,15 +190,29 @@ export const generateCode = async (
         'qwen/qwen3-next-80b-a3b-instruct:free',
         'google/gemma-4-26b-a4b-it:free',
         'google/gemma-4-31b-it:free',
-        'nousresearch/hermes-3-llama-3.1-405b:free'
+        'nousresearch/hermes-3-llama-3.1-405b:free',
+        'glm/glm-4.6:free',
+        'deepseek-ai/deepseek-coder-v2-lite-instruct:free',
+        'nvidia/nemotron-3-super-120b-a12b:free'
     ];
 
-        const tryGenerate = async (modelName: string, maxTokens: number = 8192): Promise<CodeGenerationResult> => {
-        const isNvidia = modelName.startsWith('nvidia/') || (config.nvidia_models && config.nvidia_models.includes(modelName));
-        const endpoint = isNvidia
-            ? "https://integrate.api.nvidia.com/v1/chat/completions"
-            : "https://openrouter.ai/api/v1/chat/completions";
-        const apiKey = isNvidia ? config.nvidia_api_key : config.openrouter_api_key;
+    let messages: any[] = [];
+
+    // Stream tokens from the provider when a progress callback is provided so
+    // the frontend can reveal files live as the model writes them.
+    const streamingEnabled = typeof progress === 'function';
+
+    const tryGenerate = async (modelName: string, maxTokens: number = 8192): Promise<CodeGenerationResult> => {
+        const chatProvider = resolveChatProvider(modelName);
+        const isNvidia = !chatProvider && (modelName.startsWith('nvidia/') || (config.nvidia_models && config.nvidia_models.includes(modelName)));
+        const endpoint = chatProvider
+            ? chatProvider.endpoint
+            : isNvidia
+                ? "https://integrate.api.nvidia.com/v1/chat/completions"
+                : "https://openrouter.ai/api/v1/chat/completions";
+        const apiKey = chatProvider ? chatProvider.apiKey : (isNvidia ? config.nvidia_api_key : config.openrouter_api_key);
+        const modelToSend = chatProvider ? chatProvider.model : modelName;
+        const supportsFunctions = !chatProvider;
 
         if (!apiKey || apiKey === "YOUR_OPENROUTER_KEY_HERE" || apiKey === "YOUR_NVIDIA_KEY_HERE") {
             throw new Error(`API Key not configured for ${modelName}`);
@@ -174,100 +233,10 @@ export const generateCode = async (
                 }
             }
         };
-
-        // Prepare request payload
-        const requestPayload: any = {
-            model: modelName,
-            messages: messages,
-            temperature: 0.7,
-            max_tokens: maxTokens,
-            functions: [searchTool],
-            function_call: "auto"
-        };
-
-        // Loop to handle potential function calls until final response
-        let emptyRetryCount = 0;
-        while (true) {
-            const response = await axios.post(endpoint, requestPayload, {
-                headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://velix.snapgrids.store"
-                }
-            });
-            const msg = response.data.choices[0].message;
-
-            // If the model wants to call a function
-            if (msg?.function_call) {
-                const fnName = msg.function_call.name;
-                let args: any = {};
-                try {
-                    args = JSON.parse(msg.function_call.arguments);
-                } catch (e) {
-                    console.warn("Failed to parse function arguments", e);
-                }
-                if (fnName === "search_web" && args.query) {
-                    console.log(`[AIService] Performing web search for: ${args.query}`);
-                    const result = await WebSearchService.searchWeb(args.query);
-                    searchQueries.push(args.query);
-                    if (result?.title && result?.url) {
-                        searchSources.push({ title: result.title, url: result.url });
-                    }
-                    // Append assistant function call and function result to the conversation
-                    messages.push({ role: "assistant", content: null, function_call: msg.function_call });
-                    messages.push({ role: "function", name: fnName, content: JSON.stringify(result) });
-                    requestPayload.messages = messages;
-                    // After providing function result, clear functions and request final response without function calls
-                    requestPayload.functions = [];
-                    requestPayload.function_call = "none";
-                    continue; // Continue loop with updated messages
-                } else {
-                    console.warn(`[AIService] Unknown function ${fnName}`);
-                }
-            }
-
-            // Final response from assistant
-            const rawResponse = msg?.content || "";
-            // If the assistant returns an empty response without content or function calls, retry a limited number of times
-            if (!rawResponse.trim()) {
-                emptyRetryCount++;
-                if (emptyRetryCount > 3) {
-                    console.error("AI returned empty response after multiple retries. Aborting.");
-                    throw new Error("Empty AI response after retries");
-                }
-                console.warn(`AI returned empty response, retrying (${emptyRetryCount})...`);
-                continue;
-            }
-            console.log("----------------------------------------------------------------");
-            console.log("RAW AI RESPONSE START");
-            console.log(rawResponse);
-            console.log("RAW AI RESPONSE END");
-            console.log("----------------------------------------------------------------");
-
-            const files = parseAICodeResponse(rawResponse);
-            console.log(`Parsed ${files.length} files from response`);
-
-            return {
-                files,
-                rawResponse,
-                model: response.data.model,
-                searchQueries: searchQueries.length > 0 ? searchQueries : undefined,
-                searchSources: searchSources.length > 0 ? searchSources : undefined
-            };
-        }
-    };
-        const isNvidia = modelName.startsWith('nvidia/') || (config.nvidia_models && config.nvidia_models.includes(modelName));
-        const endpoint = isNvidia
-            ? "https://integrate.api.nvidia.com/v1/chat/completions"
-            : "https://openrouter.ai/api/v1/chat/completions";
-        const apiKey = isNvidia ? config.nvidia_api_key : config.openrouter_api_key;
-
-        if (!apiKey || apiKey === "YOUR_OPENROUTER_KEY_HERE" || apiKey === "YOUR_NVIDIA_KEY_HERE") {
-            throw new Error(`API Key not configured for ${modelName}`);
-        }
-
-        // Load relevant Velix documentation context based on prompt and model
-        const docsContent = skipDocs ? "" : await loadDocumentationContext(prompt, modelName);
+        // Load relevant documentation context based on prompt and model
+        const docsResult = skipDocs ? { content: "", names: [] } : await loadDocumentationContext(prompt, modelName);
+        progress?.({ type: 'docs', model: modelName, chars: docsResult.content.length, docs: docsResult.names });
+        if (docsResult.names && docsResult.names.length > 0) docsResult.names.forEach((n: string) => { if (!docsRead.includes(n)) docsRead.push(n); });
 
         // Load platform-specific skills (Hytale, Minecraft, etc.) — filtered by prompt relevance
         const skillsContext = platform ? SkillsService.getFilteredSkillsContext(platform, prompt) : '';
@@ -275,9 +244,9 @@ export const generateCode = async (
         // Cap context sizes to avoid exceeding model context windows
         const MAX_DOCS_CHARS = 6000;
         const MAX_SKILLS_CHARS = 4000;
-        const cappedDocs = docsContent.length > MAX_DOCS_CHARS ? docsContent.slice(0, MAX_DOCS_CHARS) + '\n[... truncated ...]' : docsContent;
+        const cappedDocs = docsResult.content.length > MAX_DOCS_CHARS ? docsResult.content.slice(0, MAX_DOCS_CHARS) + '\n[... truncated ...]' : docsResult.content;
         const cappedSkills = skillsContext.length > MAX_SKILLS_CHARS ? skillsContext.slice(0, MAX_SKILLS_CHARS) + '\n[... truncated ...]' : skillsContext;
-        console.log(`[AIService] Context sizes - Docs: ${cappedDocs.length}/${docsContent.length} chars, Skills: ${cappedSkills.length}/${skillsContext.length} chars`);
+        console.log(`[AIService] Context sizes - Docs: ${cappedDocs.length}/${docsResult.content.length} chars, Skills: ${cappedSkills.length}/${skillsContext.length} chars`);
 
         // Enhanced system prompt for better code generation
         const isKotlin = prompt.toLowerCase().includes('kotlin') || prompt.toLowerCase().includes('.kt');
@@ -285,6 +254,19 @@ export const generateCode = async (
         const isDatapack = language?.startsWith('datapack-');
         const isScripting = language?.startsWith('scripting-');
         const buildFile = isKotlin ? 'build.gradle.kts' : 'pom.xml';
+
+        const ACTION_CAPABILITIES = `## AVAILABLE ACTIONS
+You can do more than just write files. After generating your files, you may also:
+- Run a shell command in the project directory. Output exactly:
+RUN: <command>
+- Download a remote file into the project. Output exactly:
+DOWNLOAD: <url> TO <path>
+(or just "DOWNLOAD: <url>" to save it with its filename from the URL)
+Example of running a build or installing dependencies:
+RUN: npm install
+RUN: mvn dependency:resolve
+DOWNLOAD: https://example.com/dependency.jar TO lib/dependency.jar
+Only use RUN/DOWNLOAD when genuinely needed (installing deps, fetching resources, verifying the build). Commands run inside the sandbox project folder with limited permissions.`;
 
         let enhancedSystemPrompt = '';
 
@@ -332,6 +314,8 @@ Use the appropriate code fence language: yaml for .yml, json for .json, toml for
 - NO explanations, NO prose, NO markdown commentary
 - EVERY file must be COMPLETE — every setting, every section
 - NO placeholders, NO "add more here", NO "customize as needed"
+
+${ACTION_CAPABILITIES}
 
 ## REFERENCE
 ${cappedDocs}
@@ -418,6 +402,8 @@ Use pack_format: 61 for MC 1.21.4, 57 for 1.21.2-1.21.3, 48 for 1.21-1.21.1
 - NO placeholders, NO TODOs
 - Use correct pack_format for target MC version
 
+${ACTION_CAPABILITIES}
+
 ## REFERENCE
 ${cappedDocs}
 ${cappedSkills}`;
@@ -482,6 +468,8 @@ FILE: path/to/file.sh
 - NO explanations, NO prose, NO markdown commentary
 - EVERY command must be valid 1.21.x syntax
 - Complete scripts — no placeholders
+
+${ACTION_CAPABILITIES}
 
 ## REFERENCE
 ${cappedDocs}
@@ -614,6 +602,8 @@ FILE: README.md
 - NO explanations, NO prose, NO markdown commentary
 - EVERY file must be COMPLETE — all imports, all methods, all logic
 
+${ACTION_CAPABILITIES}
+
 ## REFERENCE
 ${cappedDocs}
 ${cappedSkills}`;
@@ -672,12 +662,15 @@ Common imports for Paper plugins:
 
 ## PACKAGE NAMING
 Derive from plugin name: TPAPlugin -> com.tpa, AutoFish -> com.autofish, LifeSteal -> com.lifesteal
+
+${ACTION_CAPABILITIES}
+
 ## SKILLS REFERENCE
 ${cappedSkills}`;
         }
 
 
-        const messages: any[] = [
+        messages = [
             { role: "system", content: enhancedSystemPrompt }
         ];
 
@@ -701,7 +694,13 @@ ${cappedSkills}`;
 
         // Cap the user prompt itself if it's extremely long
         const MAX_PROMPT_CHARS = 4000;
-        const finalPrompt = prompt.length > MAX_PROMPT_CHARS ? prompt.slice(0, MAX_PROMPT_CHARS) + '\n[... prompt truncated due to length ...]' : prompt;
+        let finalPrompt = prompt.length > MAX_PROMPT_CHARS ? prompt.slice(0, MAX_PROMPT_CHARS) + '\n[... prompt truncated due to length ...]' : prompt;
+
+        // Inject pre-fetched web search results into the user message so the model can actually use them
+        if (searchSources.length > 0) {
+            const searchContext = searchSources.slice(0, 5).map(s => `- [${s.title}](${s.url})`).join('\n');
+            finalPrompt = `[WEB SEARCH RESULTS (from live web search)]\nUse these results as up-to-date reference material for answering the request.\n${searchContext}\n\n[USER REQUEST]\n${finalPrompt}`;
+        }
 
         // Build user message — supports images (vision) and file context
         if (images && images.length > 0) {
@@ -726,17 +725,216 @@ ${cappedSkills}`;
             let textContent = finalPrompt;
             if (fileContext && fileContext.length > 0) {
                 const fileSummary = fileContext.map(f => `- ${f.path} (${f.content.length} chars)`).join('\n');
+                textContent = `[PROJECT FILES (${fileContext.length} files)]:\n${fileSummary}\n\n${finalPrompt}`;
+            }
+            messages.push({ role: 'user', content: textContent });
+        }
 
-        const files = parseAICodeResponse(rawResponse);
-        console.log(`Parsed ${files.length} files from response`);
-
-        return {
-            files,
-            rawResponse,
-            model: response.data.model,
-            searchQueries: searchQueries.length > 0 ? searchQueries : undefined,
-            searchSources: searchSources.length > 0 ? searchSources : undefined
+        // Prepare request payload
+        const requestPayload: any = {
+            model: modelToSend,
+            messages: messages,
+            temperature: 0.7,
+            max_tokens: maxTokens
         };
+        if (supportsFunctions) {
+            requestPayload.functions = [searchTool];
+            requestPayload.function_call = "auto";
+        }
+
+        // Loop to handle potential function calls until final response
+        let emptyRetryCount = 0;
+        const reportedFiles = new Set<string>();
+        const reportedCommands = new Set<string>();
+        const reportedDownloads = new Set<string>();
+        while (true) {
+            progress?.({ type: 'model', model: modelToSend });
+            let msg: any;
+            let modelFromResponse = modelToSend;
+            if (streamingEnabled) {
+                requestPayload.stream = true;
+                const streamed = await streamCompletion(endpoint, requestPayload, {
+                    headers: chatProvider
+                        ? providerHeaders(chatProvider)
+                        : {
+                            "Authorization": `Bearer ${apiKey}`,
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://velix.snapgrids.store"
+                        },
+                    reportedFiles,
+                    reportedCommands,
+                    reportedDownloads,
+                    progress
+                });
+                msg = { content: streamed.content, function_call: streamed.functionCall };
+                if (streamed.model) modelFromResponse = streamed.model;
+            } else {
+                const response = await axios.post(endpoint, requestPayload, {
+                    headers: chatProvider
+                        ? providerHeaders(chatProvider)
+                        : {
+                            "Authorization": `Bearer ${apiKey}`,
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://velix.snapgrids.store"
+                        }
+                });
+                msg = response.data.choices[0].message;
+                modelFromResponse = response.data.model;
+            }
+
+            // If the model wants to call a function
+            if (msg?.function_call) {
+                const fnName = msg.function_call.name;
+                let args: any = {};
+                try {
+                    args = JSON.parse(msg.function_call.arguments);
+                } catch (e) {
+                    console.warn("Failed to parse function arguments", e);
+                }
+                if (fnName === "search_web" && args.query) {
+                    console.log(`[AIService] Performing web search for: ${args.query}`);
+                    progress?.({ type: 'searching', query: args.query });
+                    const searchResults = await WebSearchService.searchWeb(args.query);
+                    searchQueries.push(args.query);
+                    if (searchResults && searchResults.length > 0) {
+                        searchResults.slice(0, 5).forEach(r => {
+                            if (r.title && r.url) {
+                                searchSources.push({ title: r.title, url: r.url });
+                                progress?.({ type: 'search', title: r.title, url: r.url });
+                            }
+                        });
+                    }
+                    // Append assistant function call and function result to the conversation
+                    messages.push({ role: "assistant", content: null, function_call: msg.function_call });
+                    messages.push({ role: "function", name: fnName, content: JSON.stringify(searchResults) });
+                    requestPayload.messages = messages;
+                    // After providing function result, clear functions and request final response without function calls
+                    requestPayload.functions = [];
+                    requestPayload.function_call = "none";
+                    continue; // Continue loop with updated messages
+                } else {
+                    console.warn(`[AIService] Unknown function ${fnName}`);
+                }
+            }
+
+            // Final response from assistant
+            const rawResponse = msg?.content || "";
+            // If the assistant returns an empty response without content or function calls, retry a limited number of times
+            if (!rawResponse.trim()) {
+                emptyRetryCount++;
+                if (emptyRetryCount > 3) {
+                    console.error("AI returned empty response after multiple retries. Aborting.");
+                    throw new Error("Empty AI response after retries");
+                }
+                console.warn(`AI returned empty response, retrying (${emptyRetryCount})...`);
+                continue;
+            }
+            console.log("----------------------------------------------------------------");
+            console.log("RAW AI RESPONSE START");
+            console.log(rawResponse);
+            console.log("RAW AI RESPONSE END");
+            console.log("----------------------------------------------------------------");
+
+            const files = parseAICodeResponse(rawResponse);
+            console.log(`Parsed ${files.length} files from response`);
+
+            const commands = parseAIActions(rawResponse).commands;
+            const downloads = parseAIActions(rawResponse).downloads;
+            for (const c of commands) progress?.({ type: 'command', command: c.command, description: c.description });
+            for (const d of downloads) progress?.({ type: 'download', url: d.url, path: d.path });
+
+            return {
+                files,
+                rawResponse,
+                model: modelFromResponse,
+                searchQueries: searchQueries.length > 0 ? searchQueries : undefined,
+                searchSources: searchSources.length > 0 ? searchSources : undefined,
+                docs: docsRead.length > 0 ? docsRead : undefined,
+                commands: commands.length > 0 ? commands : undefined,
+                downloads: downloads.length > 0 ? downloads : undefined
+            };
+        }
+    };
+
+    /**
+     * Streams a chat/completions request, accumulating content and tool calls.
+     * Incrementally detects completed FILE: blocks and reports them via progress.
+     */
+    const streamCompletion = async (url: string, payload: any, opts: { headers: any; reportedFiles: Set<string>; reportedCommands?: Set<string>; reportedDownloads?: Set<string>; progress?: (ev: any) => void }) => {
+        const res = await axios.post(url, payload, { headers: opts.headers, responseType: 'stream', timeout: 180000 });
+        let content = '';
+        let functionCall: any = null;
+        let modelId = '';
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let lastCheck = 0;
+        const checkFiles = () => {
+            if (!opts.progress) return;
+            let parsed: GeneratedFile[] = [];
+            try { parsed = parseAICodeResponse(content); } catch { return; }
+            for (const f of parsed) {
+                if (opts.reportedFiles.has(f.path)) continue;
+                opts.reportedFiles.add(f.path);
+                opts.progress({ type: 'file', path: f.path, op: f.content && f.content.startsWith('// Edit') ? 'edited' : 'created' });
+            }
+            try {
+                const actions = parseAIActions(content);
+                for (const c of actions.commands) {
+                    if (opts.reportedCommands?.has(c.command)) continue;
+                    opts.reportedCommands?.add(c.command);
+                    opts.progress({ type: 'command', command: c.command, description: c.description });
+                }
+                for (const d of actions.downloads) {
+                    const key = d.url + (d.path || '');
+                    if (opts.reportedDownloads?.has(key)) continue;
+                    opts.reportedDownloads?.add(key);
+                    opts.progress({ type: 'download', url: d.url, path: d.path });
+                }
+            } catch { /* ignore */ }
+        };
+        // Stall watchdog: if no data arrives for this long, abort the stream
+        const STALL_TIMEOUT_MS = 90000;
+        let lastDataAt = Date.now();
+        const stallTimer = setInterval(() => {
+            if (Date.now() - lastDataAt > STALL_TIMEOUT_MS) {
+                res.data.destroy?.(new Error('Stream stalled: no data received from model for 90s'));
+            }
+        }, 15000);
+        stallTimer.unref?.();
+        await new Promise<void>((resolvePromise, rejectPromise) => {
+            res.data.on('data', (chunk: Buffer) => {
+                lastDataAt = Date.now();
+                buffer += decoder.decode(chunk, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith('data:')) continue;
+                    const data = trimmed.slice(5).trim();
+                    if (data === '[DONE]') continue;
+                    let json: any;
+                    try { json = JSON.parse(data); } catch { continue; }
+                    const choice = json.choices?.[0];
+                    const delta = choice?.delta || {};
+                    if (json.model) modelId = json.model;
+                    if (typeof delta.content === 'string' && delta.content) {
+                        content += delta.content;
+                        if (content.length - lastCheck > 150) {
+                            lastCheck = content.length;
+                            checkFiles();
+                        }
+                    }
+                    if (delta.function_call) {
+                        functionCall = functionCall || { name: '', arguments: '' };
+                        if (delta.function_call.name) functionCall.name += delta.function_call.name;
+                        if (typeof delta.function_call.arguments === 'string') functionCall.arguments += delta.function_call.arguments;
+                    }
+                }
+            });
+            res.data.on('end', () => { clearInterval(stallTimer); checkFiles(); resolvePromise(); });
+            res.data.on('error', (err: Error) => { clearInterval(stallTimer); rejectPromise(err); });
+        });
+        return { content, functionCall, model: modelId };
     };
 
     // Try primary model first, then retry with lower tokens, then fallback to free models
@@ -796,8 +994,15 @@ ${cappedSkills}`;
             await new Promise(r => setTimeout(r, 10000));
         }
         
-        // Try fallback free models (always try, even if primary was free)
-        for (const fallbackModel of FREE_FALLBACK_MODELS) {
+        // Try fallback models (always try, even if primary was free).
+        // Prefer the specialty providers (llmgate/orac/priyx/requesty) first —
+        // they don't require an OpenRouter balance and avoid 402s.
+        const providerFallbacks = ['llmgate', 'orac', 'priyx', 'requesty'].filter(m => {
+            const p = resolveChatProvider(m);
+            return p && p.apiKey && !p.apiKey.includes('YOUR_') && p.apiKey.length > 5;
+        });
+        const FALLBACK_CHAIN = [...providerFallbacks, ...FREE_FALLBACK_MODELS];
+        for (const fallbackModel of FALLBACK_CHAIN) {
             if (fallbackModel === selectedModel) continue; // Skip same model
             try {
                 console.log(`[AIService] Waiting 3s before trying fallback model: ${fallbackModel}`);
@@ -827,7 +1032,7 @@ ${cappedSkills}`;
         // All models failed
         throw new Error(`All AI models failed. Last error: ${primaryError.message}`);
     }
-};
+}
 
 /**
  * Enhance a brief prompt into a detailed specification, using platform docs and skills
@@ -898,12 +1103,41 @@ Return ONLY the enhanced specification. NO commentary, NO explanations.
 
 ${platformContext ? `\n\nAVAILABLE DOCUMENTATION AND SKILLS:\n${platformContext.slice(0, 3000)}\n\nUse the above docs and skills as reference when enhancing the prompt. Incorporate relevant API patterns, config keys, and best practices.` : ''}`;
 
-    const ENHANCE_MODELS = ['openai/gpt-oss-20b:free', 'meta-llama/llama-3.3-70b-instruct:free', 'openai/gpt-oss-120b:free'];
+    const ENHANCE_MODELS = ['openai/gpt-oss-20b:free', 'meta-llama/llama-3.3-70b-instruct:free', 'openai/gpt-oss-120b:free', 'glm/glm-4.6:free', 'deepseek-ai/deepseek-coder-v2-lite-instruct:free'];
     
     for (let attempt = 0; attempt < ENHANCE_MODELS.length; attempt++) {
         const tryModel = ENHANCE_MODELS[attempt];
         try {
             if (attempt > 0) {
+                console.log(`[AIService] Enhance retry attempt ${attempt + 1} with ${tryModel}`);
+            }
+            const response = await axios.post(
+                'https://openrouter.ai/api/v1/chat/completions',
+                {
+                    model: tryModel,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: prompt },
+                    ],
+                    max_tokens: 4000,
+                    temperature: 0.3,
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json',
+                    },
+                    timeout: 60000,
+                }
+            );
+            const content = response.data?.choices?.[0]?.message?.content;
+            if (content && content.trim().length > 50) {
+                console.log(`[AIService] Enhanced prompt via ${tryModel} (${content.length} chars)`);
+                return content.trim();
+            }
+        } catch (err: any) {
+            console.warn(`[AIService] Enhance attempt ${attempt + 1} failed: ${err.message}`);
+        }
     }
     // All enhance models failed — return original prompt
     console.warn('[AIService] All enhance models failed, using original prompt');
@@ -1048,6 +1282,39 @@ export const parseAICodeResponse = (response: string): GeneratedFile[] => {
 };
 
 /**
+ * Parse action markers from an AI response:
+ *  - RUN: <command>                       → shell command to execute in the sandbox
+ *  - DOWNLOAD: <url> TO <path>            → download a remote file into the sandbox
+ *  - DOWNLOAD: <url>                      → download with path inferred from the URL
+ */
+export const parseAIActions = (response: string): { commands: GeneratedCommand[]; downloads: GeneratedDownload[] } => {
+    const commands: GeneratedCommand[] = [];
+    const downloads: GeneratedDownload[] = [];
+
+    // RUN: <command>
+    const runPattern = /(?:^|\n)\s*(?:RUN|SHELL|EXEC):\s*(.+?)(?=(?:\n\s*(?:RUN|SHELL|EXEC|DOWNLOAD|FILE):|\n\s*```|$))/gi;
+    let match;
+    while ((match = runPattern.exec(response)) !== null) {
+        const command = match[1].trim().replace(/^["'`]|["'`]$/g, '').trim();
+        if (command && command.length >= 2 && !commands.some(c => c.command === command)) {
+            commands.push({ command, description: command.split(/\s+/).slice(0, 4).join(' ') });
+        }
+    }
+
+    // DOWNLOAD: <url> [TO <path>]
+    const dlPattern = /(?:^|\n)\s*DOWNLOAD(?::|\s+)\s*([^\s]+)(?:\s+TO\s+([^\n]+))?/gi;
+    while ((match = dlPattern.exec(response)) !== null) {
+        const url = match[1].trim().replace(/^["'`]|["'`]$/g, '');
+        if (!/^https?:\/\//i.test(url)) continue;
+        const rawPath = match[2]?.trim().replace(/^["'`]|["'`]$/g, '').trim() || '';
+        const inferredPath = rawPath || url.split('/').pop()?.split('?')[0] || 'download.bin';
+        downloads.push({ url, path: inferredPath, description: inferredPath });
+    }
+
+    return { commands, downloads };
+};
+
+/**
  * Validate generated code structure
  */
 export const validateGeneratedCode = (files: GeneratedFile[], language: string): { valid: boolean; errors: string[] } => {
@@ -1090,18 +1357,12 @@ export const validateGeneratedCode = (files: GeneratedFile[], language: string):
 /**
  * Load documentation context: Codella plugin docs from DB + local skill files
  */
-async function loadDocumentationContext(prompt: string, model: string): Promise<string> {
-    let context = "";
-
-    // Load Codella approved plugin documentation
+async function loadDocumentationContext(prompt: string, model: string): Promise<{ content: string; names: string[] }> {
     try {
-        const codellaDocs = await DocService.getRelevantDocs(prompt);
-        if (codellaDocs) {
-            context += codellaDocs;
-        }
+        const result = await DocService.getRelevantDocs(prompt);
+        return result;
     } catch (error) {
-        console.error('Failed to load Codella docs context:', error);
+        console.error('Failed to load docs context:', error);
+        return { content: "", names: [] };
     }
-
-    return context;
 }

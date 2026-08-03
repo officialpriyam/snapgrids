@@ -3,7 +3,7 @@ import { FileService } from '../services/FileService';
 import { AuthService } from '../services/AuthService';
 import { dbService } from '../services/DatabaseService';
 import { asyncHandler } from '../middleware/asyncHandler';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, optionalAuth } from '../middleware/auth';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -11,22 +11,41 @@ import fs from 'fs';
 const router = Router();
 const upload = multer({ dest: 'uploads/' });
 
+// Populate req.auth from the same cached/session-aware path used by the AI routes.
+// Public projects still work without a session; private projects no longer depend on
+// a second direct Supabase token verification for every file request.
+router.use(optionalAuth);
+
 // Access control middleware for project files
 const requireProjectAccess = asyncHandler(async (req, res, next) => {
     const sessionId = req.params.sessionId || req.body.sessionId;
     if (!sessionId) return next();
 
     // Extract user from cookie if present
-    let userId: string | undefined;
+    let userId: string | undefined = req.auth?.userId;
     try {
         const token = req.cookies?.token;
-        if (token) {
+        if (!userId && token) {
             const payload = await AuthService.verifyToken(token);
             if (payload) userId = payload.userId;
         }
     } catch {}
 
-    const { accessible, role } = await dbService.isProjectAccessible(sessionId, userId);
+    const { accessible, role, project } = await dbService.isProjectAccessible(sessionId, userId);
+    // The workspace can be opened before its first generation creates the
+    // database row. Treat that specific, authenticated first use as project
+    // creation; do not apply this to an existing project owned by somebody
+    // else, which must still pass the role check below.
+    if (!project && userId) {
+        await dbService.createProject({
+            id: sessionId,
+            userId,
+            name: 'New Project',
+            language: 'java'
+        });
+        (req as any).projectRole = 'owner';
+        return next();
+    }
     if (!accessible) {
         return res.status(403).json({ error: 'Access denied. This project is private.' });
     }
@@ -61,7 +80,7 @@ router.get('/:sessionId', requireProjectAccess, asyncHandler(async (req, res) =>
     }
 }));
 
-router.post('/create', asyncHandler(async (req, res) => {
+router.post('/create', requireProjectAccess, asyncHandler(async (req, res) => {
     const { sessionId, path, content } = req.body;
     try {
         await FileService.createFile(sessionId, path, content);
@@ -71,7 +90,7 @@ router.post('/create', asyncHandler(async (req, res) => {
     }
 }));
 
-router.post('/folder', asyncHandler(async (req, res) => {
+router.post('/folder', requireProjectAccess, asyncHandler(async (req, res) => {
     const { sessionId, path } = req.body;
     try {
         await FileService.createFolder(sessionId, path);
@@ -81,7 +100,7 @@ router.post('/folder', asyncHandler(async (req, res) => {
     }
 }));
 
-router.post('/delete', asyncHandler(async (req, res) => {
+router.post('/delete', requireProjectAccess, asyncHandler(async (req, res) => {
     const { sessionId, path } = req.body;
     try {
         await FileService.deletePath(sessionId, path);
@@ -91,7 +110,7 @@ router.post('/delete', asyncHandler(async (req, res) => {
     }
 }));
 
-router.post('/rename', asyncHandler(async (req, res) => {
+router.post('/rename', requireProjectAccess, asyncHandler(async (req, res) => {
     const { sessionId, oldPath, newPath } = req.body;
     try {
         await FileService.renamePath(sessionId, oldPath, newPath);

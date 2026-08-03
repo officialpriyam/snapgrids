@@ -1,7 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { SandboxContext } from './SandboxService';
+import { cacheService } from './CacheService';
 import config from '../utils/config';
+
+const FILES_TTL = 30; // 30 seconds for file cache
 
 export class FileService {
     static async saveFiles(sessionId: string, files: { [path: string]: string }) {
@@ -9,14 +12,18 @@ export class FileService {
         for (const [filePath, content] of Object.entries(files)) {
             sandbox.writeFile(filePath, content);
         }
+        await cacheService.invalidatePattern(`files:${sessionId}:*`);
         return { success: true, files: Object.keys(files) };
     }
 
     static async getFiles(sessionId: string) {
+        const cacheKey = `files:${sessionId}:all`;
+        const cached = await cacheService.get<{ [path: string]: string }>(cacheKey);
+        if (cached) return cached;
+
         const sandbox = new SandboxContext(sessionId);
         const filePaths = sandbox.listFiles();
 
-        // Patterns to hide
         const hidePatterns = [
             'target/',
             '.git/',
@@ -37,23 +44,25 @@ export class FileService {
                 files[filePath] = sandbox.readFile(filePath);
             }
         }
+
+        await cacheService.set(cacheKey, files, FILES_TTL);
         return files;
     }
 
     static async createFile(sessionId: string, filePath: string, content: string = '') {
         const sandbox = new SandboxContext(sessionId);
         sandbox.writeFile(filePath, content);
+        await cacheService.invalidatePattern(`files:${sessionId}:*`);
         return { success: true };
     }
 
     static async createFolder(sessionId: string, folderPath: string) {
         const sandbox = new SandboxContext(sessionId);
-        // SandboxContext might need a specific method for folders, or we treat paths transparently
-        // Assuming writeFile handles directory creation or we need to access underlying fs
         const fullPath = path.join(sandbox.getRootDir(), folderPath);
         if (!fs.existsSync(fullPath)) {
             fs.mkdirSync(fullPath, { recursive: true });
         }
+        await cacheService.invalidatePattern(`files:${sessionId}:*`);
         return { success: true };
     }
 
@@ -62,6 +71,7 @@ export class FileService {
         const fullPath = path.join(sandbox.getRootDir(), targetPath);
         if (fs.existsSync(fullPath)) {
             fs.rmSync(fullPath, { recursive: true, force: true });
+            await cacheService.invalidatePattern(`files:${sessionId}:*`);
             return { success: true };
         }
         throw new Error(`Path not found: ${targetPath}`);
@@ -73,12 +83,12 @@ export class FileService {
         const fullNewPath = path.join(sandbox.getRootDir(), newPath);
 
         if (fs.existsSync(fullOldPath)) {
-            // Ensure parent dir exists for new path
             const newDir = path.dirname(fullNewPath);
             if (!fs.existsSync(newDir)) {
                 fs.mkdirSync(newDir, { recursive: true });
             }
             fs.renameSync(fullOldPath, fullNewPath);
+            await cacheService.invalidatePattern(`files:${sessionId}:*`);
             return { success: true };
         }
         throw new Error(`Path not found: ${oldPath}`);

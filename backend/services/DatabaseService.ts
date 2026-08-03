@@ -168,14 +168,31 @@ class DatabaseService {
             });
         }
 
-        return this.insert('projects', {
-            id: project.id,
-            user_id: project.userId,
-            name: project.name,
-            language: project.language || 'java',
-            model: project.model || null,
-            thumbnail: project.thumbnail || null
-        });
+        try {
+            return await this.insert('projects', {
+                id: project.id,
+                user_id: project.userId,
+                name: project.name,
+                language: project.language || 'java',
+                model: project.model || null,
+                thumbnail: project.thumbnail || null
+            });
+        } catch (err: any) {
+            // Handle race: concurrent request inserted the same project id first (unique violation)
+            const message = String(err?.message || '');
+            const code = String(err?.code || '');
+            const isDuplicateKey = code === '23505' || message.includes('duplicate key') || message.includes('already exists');
+            if (isDuplicateKey) {
+                const raced = await this.getProjectById(project.id);
+                if (raced) {
+                    return this.update('projects', { id: project.id }, {
+                        last_updated: new Date().toISOString(),
+                        model: project.model || raced.model
+                    });
+                }
+            }
+            throw err;
+        }
     }
 
     public async updateProjectThumbnail(projectId: string, thumbnail: string) {

@@ -179,27 +179,26 @@ export class DocService {
     /**
      * Retrieve relevant plugin documents based on prompt keyword search
      */
-    static async getRelevantDocs(prompt: string): Promise<string> {
+    static async getRelevantDocs(prompt: string): Promise<{ content: string; names: string[] }> {
         const docs = await dbService.getApprovedPluginDocs();
-        if (!docs || docs.length === 0) return "";
+        if (!docs || docs.length === 0) return { content: "", names: [] };
 
         const keywords = prompt.toLowerCase()
             .replace(/[^\w\s]/g, '')
             .split(/\s+/)
             .filter(k => k.length > 3 && !['create', 'plugin', 'make', 'implement', 'write', 'using', 'build', 'minecraft', 'discord', 'server'].includes(k));
 
-        if (keywords.length === 0) return "";
+        if (keywords.length === 0) return { content: "", names: [] };
 
         let relevantDocsText = "";
+        const docNames: string[] = [];
         for (const doc of docs) {
-            // Stop early if context is already large
             if (relevantDocsText.length > 12000) break;
 
             const pluginId = (doc.plugin_id || '').toLowerCase();
             const name = (doc.name || '').toLowerCase();
             const content = (doc.content || '').toLowerCase();
 
-            // Simple score calculation
             let score = 0;
             if (keywords.includes(pluginId)) score += 100;
             if (keywords.includes(name)) score += 100;
@@ -214,9 +213,10 @@ export class DocService {
                 console.log(`[DocService] Found relevant plugin doc: ${doc.name} (Score: ${score})`);
                 const docContent = (doc.content || '').slice(0, 4000);
                 relevantDocsText += `\n=== CODELLA DOCS: ${doc.name} ===\n${docContent}\n`;
+                docNames.push(doc.name);
             }
         }
 
-        return relevantDocsText;
+        return { content: relevantDocsText, names: docNames };
     }
 }

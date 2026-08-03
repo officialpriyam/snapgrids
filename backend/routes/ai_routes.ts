@@ -16,11 +16,13 @@ import { WebSearchService } from '../services/WebSearchService';
 import { requireAuth } from '../middleware/auth';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { cacheService } from '../services/CacheService';
+import { resolveChatProvider, providerHeaders } from '../services/ModelProviderService';
 
 const router = Router();
 
 function resolvePlanModel(model?: string) {
     const m = model || '';
+    if (resolveChatProvider(m)) return m; // specialty providers (llmgate/orac/priyx) used directly
     if (['priyx-lite', 'velix-lite', 'lite'].includes(m)) return 'openai/gpt-oss-20b:free';
     if (['priyx-max', 'velix-max', 'max'].includes(m)) return 'openai/gpt-oss-120b:free';
     if (!model || ['priyx-ultra', 'velix-pro', 'velix-ultra', 'pro', 'ultra'].includes(m)) return 'qwen/qwen3-coder:free';
@@ -29,11 +31,19 @@ function resolvePlanModel(model?: string) {
 
 function planModelCandidates(model?: string) {
     const primary = resolvePlanModel(model);
+    const providerFallbacks = ['llmgate', 'orac', 'priyx', 'requesty'].filter(m => {
+        const p = resolveChatProvider(m);
+        return p && p.apiKey && !p.apiKey.includes('YOUR_') && p.apiKey.length > 5;
+    });
     return Array.from(new Set([
         primary,
+        ...providerFallbacks,
         'qwen/qwen3-next-80b-a3b-instruct:free',
         'openai/gpt-oss-120b:free',
         'qwen/qwen3-coder:free',
+        'glm/glm-4.6:free',
+        'deepseek-ai/deepseek-coder-v2-lite-instruct:free',
+        'nvidia/nemotron-3-super-120b-a12b:free',
         ...(config.nvidia_models || []).slice(0, 2)
     ].filter(Boolean)));
 }
@@ -177,16 +187,21 @@ Generate 1-2 practical, high-value questions for the user to refine requirements
         let modelUsed = "";
         let lastPlanError: any = null;
         for (const candidate of planModelCandidates(model)) {
-            const isNvidia = candidate.startsWith('nvidia/') || candidate.includes('nemotron') || (config.nvidia_models || []).includes(candidate);
-            const endpoint = isNvidia ? "https://integrate.api.nvidia.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-            const apiKey = isNvidia ? process.env.NVIDIA_API_KEY || config.nvidia_api_key : process.env.OPENROUTER_API_KEY || config.openrouter_api_key;
+            const chatProvider = resolveChatProvider(candidate);
+            const isNvidia = !chatProvider && (candidate.startsWith('nvidia/') || candidate.includes('nemotron') || (config.nvidia_models || []).includes(candidate));
+            const endpoint = chatProvider
+                ? chatProvider.endpoint
+                : isNvidia ? "https://integrate.api.nvidia.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+            const apiKey = chatProvider
+                ? chatProvider.apiKey
+                : isNvidia ? process.env.NVIDIA_API_KEY || config.nvidia_api_key : process.env.OPENROUTER_API_KEY || config.openrouter_api_key;
             if (!apiKey || apiKey.includes('YOUR_')) {
-                lastPlanError = new Error(`${isNvidia ? 'NVIDIA' : 'OpenRouter'} API key is missing`);
+                lastPlanError = new Error(`${chatProvider ? chatProvider.label : (isNvidia ? 'NVIDIA' : 'OpenRouter')} API key is missing`);
                 continue;
             }
             try {
                 const response = await axios.post(endpoint, {
-                    model: candidate,
+                    model: chatProvider ? chatProvider.model : candidate,
                     messages: [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: `Platform: ${platform || 'web'}\nLanguage: ${language || 'typescript'}\nUser Request: ${prompt}${webContext}` }
@@ -194,17 +209,19 @@ Generate 1-2 practical, high-value questions for the user to refine requirements
                     temperature: 0.35,
                     max_tokens: 2200
                 }, {
-                    headers: {
-                        "Authorization": `Bearer ${apiKey}`,
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://velix.snapgrids.store",
-                        "X-Title": "Velix"
-                    },
+                    headers: chatProvider
+                        ? providerHeaders(chatProvider)
+                        : {
+                            "Authorization": `Bearer ${apiKey}`,
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://velix.snapgrids.store",
+                            "X-Title": "Velix"
+                        },
                     timeout: 45000
                 });
                 rawContent = response.data.choices[0]?.message?.content || "";
                 jsonResult = normalizePlanResult(extractJsonObject(rawContent), prompt);
-                modelUsed = response.data.model || candidate;
+                modelUsed = response.data.model || (chatProvider ? chatProvider.model : candidate);
                 break;
             } catch (planError: any) {
                 lastPlanError = planError;
@@ -315,21 +332,47 @@ router.patch('/plans/:messageId', asyncHandler(requireAuth), asyncHandler(async 
 router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res) => {
     console.log('[AI Routes] /generate called');
     const { prompt, model, language, sessionId: existingSessionId, enableWebSearch, images, fileContext, chatMode, fromPlan, planMessageId } = req.body;
+    const wantsStream = req.query.stream === 'true' || req.body.stream === true;
+
+    // Set up Server-Sent Events for live progress when requested
+    if (wantsStream) {
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        });
+        if (typeof (res as any).flushHeaders === 'function') (res as any).flushHeaders();
+    }
+    const send = (event: string, data: any) => {
+        if (!wantsStream) return;
+        try {
+            res.write(`event: ${event}\n`);
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+            if (typeof (res as any).flush === 'function') (res as any).flush();
+        } catch (e) { /* client gone */ }
+    };
 
     if (!prompt) {
-        return res.status(400).json({ error: "Prompt is required" });
+        const msg = { error: "Prompt is required" };
+        if (wantsStream) { send('error', msg); res.end(); return; }
+        return res.status(400).json(msg);
     }
 
     if (!req.auth || !req.auth.user) {
         console.error('[AI Routes] /generate - req.auth missing after requireAuth');
-        return res.status(401).json({ error: "Authentication failed" });
+        const msg = { error: "Authentication failed" };
+        if (wantsStream) { send('error', msg); res.end(); return; }
+        return res.status(401).json(msg);
     }
 
     const user = req.auth.user;
 
     // Chat mode is free, code generation requires credits
     if (!chatMode && user.credits < 20) {
-        return res.status(402).json({ error: "Insufficient credits. Code generation requires 20 credits. Buy more credits to continue." });
+        const msg = { error: "Insufficient credits. Code generation requires 20 credits. Buy more credits to continue." };
+        if (wantsStream) { send('error', msg); res.end(); return; }
+        return res.status(402).json(msg);
     }
 
     const plugin = pluginManager.getPlugin(language || 'java');
@@ -338,6 +381,7 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
     const skipDocs = platform === 'discord-bot';
 
     let sessionId = existingSessionId || `sess_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const sandbox = new SandboxContext(sessionId);
     let files: any[] = [];
     let rawResponse = '';
     let modelUsed = model || 'unknown';
@@ -368,15 +412,27 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
         if (chatMode) {
             // Chat mode: conversational response, no code generation
             const tier = model || 'priyx-ultra';
-            const selectedModel = resolvePlanModel(tier);
-            const isNvidia = selectedModel.startsWith('nvidia/') || selectedModel.includes('nemotron');
-            const endpoint = isNvidia ? "https://integrate.api.nvidia.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-            const apiKey = isNvidia ? process.env.NVIDIA_API_KEY || config.nvidia_api_key : process.env.OPENROUTER_API_KEY || config.openrouter_api_key;
+            const chatProvider = resolveChatProvider(tier);
+
+            const chatCandidates = chatProvider
+                ? [tier]
+                : [
+                    tier,
+                    ...(['llmgate', 'orac', 'priyx', 'requesty'].filter(m => {
+                        const p = resolveChatProvider(m);
+                        return p && p.apiKey && !p.apiKey.includes('YOUR_') && p.apiKey.length > 5;
+                    }))
+                  ];
+
             if (enableWebSearch) {
                 try {
+                    send('searching', { type: 'searching', query: prompt });
                     const sources = await WebSearchService.searchWeb(prompt);
                     searchQueries = [prompt];
                     searchSources = sources.map(({ title, url }) => ({ title, url }));
+                    for (const src of searchSources.slice(0, 10)) {
+                        send('search', { type: 'search', title: src.title, url: src.url });
+                    }
                     const webContext = sources.slice(0, 5).map(item => `- ${item.title}: ${item.snippet} (${item.url})`).join('\n');
                     history.push({ role: 'system', content: `Web search results for the user's current question:\n${webContext}` });
                 } catch (searchError: any) {
@@ -391,29 +447,59 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
             ];
 
             try {
-                const response = await axios.post(endpoint, {
-                    model: selectedModel,
-                    messages: chatMessages,
-                    temperature: 0.7,
-                    max_tokens: 2048
-                }, {
-                    headers: {
-                        "Authorization": `Bearer ${apiKey}`,
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://velix.snapgrids.store",
-                        "X-Title": "Velix"
-                    },
-                    timeout: 60000
-                });
-
-                rawResponse = response.data.choices[0]?.message?.content || "I'm here to help! What would you like to know?";
-                modelUsed = response.data.model || selectedModel;
+                let chatRaw = '';
+                let chatModelUsed = tier;
+                for (const candidate of chatCandidates) {
+                    const cp = resolveChatProvider(candidate);
+                    const cModel = cp ? cp.model : resolvePlanModel(candidate);
+                    const cIsNvidia = !cp && (cModel.startsWith('nvidia/') || cModel.includes('nemotron'));
+                    const cEndpoint = cp
+                        ? cp.endpoint
+                        : cIsNvidia ? "https://integrate.api.nvidia.com/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+                    const cKey = cp
+                        ? cp.apiKey
+                        : cIsNvidia ? process.env.NVIDIA_API_KEY || config.nvidia_api_key : process.env.OPENROUTER_API_KEY || config.openrouter_api_key;
+                    if (!cKey || cKey.includes('YOUR_')) continue;
+                    try {
+                        const response = await axios.post(cEndpoint, {
+                            model: cModel,
+                            messages: chatMessages,
+                            temperature: 0.7,
+                            max_tokens: 2048
+                        }, {
+                            headers: cp
+                                ? providerHeaders(cp)
+                                : {
+                                    "Authorization": `Bearer ${cKey}`,
+                                    "Content-Type": "application/json",
+                                    "HTTP-Referer": "https://velix.snapgrids.store",
+                                    "X-Title": "Velix"
+                                },
+                            timeout: 60000
+                        });
+                        chatRaw = response.data.choices[0]?.message?.content || '';
+                        chatModelUsed = response.data.model || cModel;
+                        break;
+                    } catch (cErr: any) {
+                        console.warn(`[AI Routes] Chat candidate ${candidate} failed:`, cErr.message);
+                    }
+                }
+                rawResponse = chatRaw || "I'm here to help! What would you like to know?";
+                modelUsed = chatModelUsed;
             } catch (chatErr: any) {
                 console.error('[AI Routes] Chat mode error:', chatErr.message);
                 rawResponse = "I'm having trouble connecting right now. Please try again in a moment.";
             }
         } else {
-            genResult = await generateCode(prompt, model, context, skipDocs, enableWebSearch === true, history, platform, language, images, fileContext);
+            const progressCb = (ev: { type: string; message?: string; query?: string; title?: string; url?: string; model?: string; chars?: number; path?: string; op?: string; docs?: string[] }) => {
+                if (ev.type === 'file' && ev.path) {
+                    const existed = sandbox.fileExists(ev.path);
+                    send('file', { path: ev.path, op: existed ? 'edited' : 'created' });
+                } else if (ev.type === 'search' || ev.type === 'searching' || ev.type === 'docs' || ev.type === 'model') {
+                    send(ev.type, ev);
+                }
+            };
+            genResult = await generateCode(prompt, model, context, skipDocs, enableWebSearch === true, history, platform, language, images, fileContext, progressCb);
             files = genResult.files || [];
             rawResponse = genResult.rawResponse || '';
             modelUsed = genResult.model || model;
@@ -433,15 +519,18 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
                 console.warn('[AI Routes] Failed to persist plan build error:', persistError.message);
             }
         }
-        return res.status(500).json({ error: `AI generation failed: ${aiError.message || 'Unknown error'}` });
+        const failMsg = { error: `AI generation failed: ${aiError.message || 'Unknown error'}` };
+        if (wantsStream) { send('error', failMsg); res.end(); return; }
+        return res.status(500).json(failMsg);
     }
 
     // Write files to sandbox (non-critical, don't fail over this) — skip for chat mode
     if (!chatMode && files.length > 0) {
         try {
-            const sandbox = new SandboxContext(sessionId);
             for (const file of files) {
+                const existed = sandbox.fileExists(file.path);
                 sandbox.writeFile(file.path, file.content);
+                send('file', { path: file.path, op: existed ? 'edited' : 'created' });
             }
             
             // Write project metadata file
@@ -453,6 +542,44 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
             }, null, 4));
         } catch (e: any) {
             console.warn('[AI Routes] Sandbox write failed:', e.message);
+        }
+    }
+
+    // Execute AI-requested commands and downloads (non-critical, don't fail the request over these)
+    if (!chatMode) {
+        const commands: any[] = (genResult as any)?.commands || [];
+        const downloads: any[] = (genResult as any)?.downloads || [];
+        if (commands.length > 0 || downloads.length > 0) {
+            try {
+                for (const dl of downloads) {
+                    try {
+                        const result = await sandbox.downloadFile(dl.url, dl.path);
+                        send('download', { url: dl.url, path: result.path, size: result.size, success: true });
+                    } catch (dlErr: any) {
+                        console.warn('[AI Routes] Download failed:', dl.url, dlErr.message);
+                        send('download', { url: dl.url, path: dl.path || '', success: false, error: dlErr.message });
+                    }
+                }
+                for (const cmd of commands) {
+                    try {
+                        send('command', { command: cmd.command, status: 'running', description: cmd.description });
+                        const result = await sandbox.runCommand(cmd.command);
+                        send('command', {
+                            command: cmd.command,
+                            status: result.success ? 'done' : 'error',
+                            exitCode: result.exitCode,
+                            output: (result.stdout + (result.stderr ? '\n' + result.stderr : '')).slice(0, 2000)
+                        });
+                        console.log(`[AI Routes] Command "${cmd.command}" -> exit ${result.exitCode ?? 'n/a'}`);
+                    } catch (cmdErr: any) {
+                        console.warn('[AI Routes] Command failed:', cmd.command, cmdErr.message);
+                        send('command', { command: cmd.command, status: 'error', error: cmdErr.message });
+                    }
+                }
+            } catch (e: any) {
+                console.warn('[AI Routes] Action execution failed:', e.message);
+            }
+            try { await cacheService.invalidatePattern(`files:${sessionId}:*`); } catch { /* ignore */ }
         }
     }
 
@@ -533,7 +660,11 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
         const summary = summaryParts.join('\n\n');
         await dbService.addMessage(sessionId, 'assistant', chatMode ? rawResponse.slice(0, 4000) : summary.slice(0, 3000), chatMode ? 'message' : 'build', {
             files: files.map(f => ({ path: f.path, size: f.content?.length || 0 })),
-            status: chatMode ? 'completed' : 'completed'
+            status: chatMode ? 'completed' : 'completed',
+            search: searchQueries.length > 0 ? { queries: searchQueries, sources: searchSources } : undefined,
+            docs: (genResult as any)?.docs?.length > 0 ? (genResult as any).docs : undefined,
+            commands: (genResult as any)?.commands?.length > 0 ? (genResult as any).commands : undefined,
+            downloads: (genResult as any)?.downloads?.length > 0 ? (genResult as any).downloads : undefined
         });
         if (fromPlan && planMessageId) {
             const stored = (await dbService.getMessagesBySessionId(sessionId)).find((m: any) => m.id === Number(planMessageId));
@@ -573,6 +704,12 @@ router.post('/generate', asyncHandler(requireAuth), asyncHandler(async (req, res
         chatMode: chatMode || false
     };
     console.log(`[AI Routes] /generate sending response - files: ${files.length}, payload size: ~${JSON.stringify(responsePayload).length} bytes`);
+    if (wantsStream) {
+        send('complete', responsePayload);
+        res.end();
+        console.log(`[AI Routes] /generate stream complete`);
+        return;
+    }
     res.json(responsePayload);
     console.log(`[AI Routes] /generate response sent OK`);
 }));
@@ -724,6 +861,9 @@ router.get('/models', asyncHandler(async (req, res) => {
             'cohere/north-mini-code:free',
             'nvidia/nemotron-nano-9b-v2:free',
             'meta-llama/llama-3.3-70b-instruct:free',
+            'glm/glm-4.6:free',
+            'deepseek-ai/deepseek-coder-v2-lite-instruct:free',
+            'microsoft/phi-3.5-mini-instruct:free',
         ];
 
         const PRO_MODELS = [
@@ -734,6 +874,10 @@ router.get('/models', asyncHandler(async (req, res) => {
             'nvidia/nemotron-3-super-120b-a12b:free',
             'deepseek-ai/deepseek-coder-6.7b-instruct',
             'bigcode/starcoder2-15b',
+            'glm/glm-4.6-plus:free',
+            'deepseek-ai/deepseek-v3:free',
+            'nvidia/nemotron-4-340b-a8b:free',
+            'meta-llama/llama-4-90b-instruct:free',
         ];
 
         // All allowed free models
@@ -757,6 +901,14 @@ router.get('/models', asyncHandler(async (req, res) => {
 
         const finalFlatList = filtered.length > 0 ? filtered : fallback;
 
+        // Specialty providers (LLMGATE / orac / Priyx-Eden) exposed as selectable models
+        const SPECIALTY_MODELS = [
+            { id: 'llmgate', name: 'LLMGATE', description: 'Claude Haiku 4.5 free via LLMGateway — fast, smart, no credits', context_length: 200000, provider: 'llmgate' },
+            { id: 'orac', name: 'orac', description: 'DeepSeek V4 free via OrcaRouter (random pro/flash model)', context_length: 131072, provider: 'orac' },
+            { id: 'priyx', name: 'Priyx', description: 'Eden AI free models — random pick from 6 cloudflare/google models', context_length: 131072, provider: 'priyx' },
+            { id: 'requesty', name: 'Requesty', description: 'Router API — random nemotron/poolside/gemma model', context_length: 131072, provider: 'requesty' }
+        ];
+
         // Separate by tier
         const liteModels = finalFlatList.filter((m: any) => LITE_MODELS.includes(m.id) || m.id.includes('nano') || m.id.includes('mini') || m.id.includes('20b') || m.id.includes('26b'));
         const proModels = finalFlatList.filter((m: any) => PRO_MODELS.includes(m.id) || m.id.includes('coder') || m.id.includes('120b') || m.id.includes('70b'));
@@ -770,28 +922,28 @@ router.get('/models', asyncHandler(async (req, res) => {
                     id: 'velix-lite',
                     name: 'Velix Lite',
                     description: 'Fast, lightweight & free models for quick tasks',
-                    models: liteModels.length > 0 ? liteModels : finalFlatList
+                    models: [...SPECIALTY_MODELS, ...(liteModels.length > 0 ? liteModels : finalFlatList)]
                 },
                 pro: {
                     id: 'velix-pro',
                     name: 'Velix Pro',
                     description: 'High-quality free models from OpenRouter & NVIDIA for serious coding',
-                    models: proModels.length > 0 ? proModels : finalFlatList
+                    models: [...SPECIALTY_MODELS, ...(proModels.length > 0 ? proModels : finalFlatList)]
                 },
                 ultra: { // backward compatibility alias for pro
                     id: 'velix-pro',
                     name: 'Velix Pro',
                     description: 'High-quality free models from OpenRouter & NVIDIA for serious coding',
-                    models: proModels.length > 0 ? proModels : finalFlatList
+                    models: [...SPECIALTY_MODELS, ...(proModels.length > 0 ? proModels : finalFlatList)]
                 },
                 max: {
                     id: 'velix-max',
                     name: 'Velix Max',
                     description: 'Best available models — randomly selected from OpenRouter & NVIDIA',
-                    models: maxModels
+                    models: [...SPECIALTY_MODELS, ...maxModels]
                 }
             },
-            flat: finalFlatList
+            flat: [...SPECIALTY_MODELS, ...finalFlatList]
         });
     } catch (err) {
         console.error('[AI Routes] /models error:', err);
