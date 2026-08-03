@@ -45,8 +45,29 @@ export class WebSearchService {
         console.log(`[WebSearchService] Querying web for: "${query}"`);
         let results: SearchResult[] = [];
 
+        // Prefer supported search APIs when keys are configured.  The HTML
+        // fallbacks below deliberately remain available for local installs
+        // that do not have a paid search provider configured.
+        if (process.env.BRAVE_SEARCH_API_KEY) {
+            try {
+                results = await this.searchBrave(query);
+                if (results.length > 0) console.log(`[WebSearchService] Brave returned ${results.length} results`);
+            } catch (err: any) {
+                console.warn('[WebSearchService] Brave search failed:', err.message);
+            }
+        }
+
+        if (results.length === 0 && process.env.GOOGLE_SEARCH_API_KEY && process.env.GOOGLE_SEARCH_ENGINE_ID) {
+            try {
+                results = await this.searchGoogle(query);
+                if (results.length > 0) console.log(`[WebSearchService] Google CSE returned ${results.length} results`);
+            } catch (err: any) {
+                console.warn('[WebSearchService] Google Custom Search failed:', err.message);
+            }
+        }
+
         // Attempt 1: DuckDuckGo HTML with Safari UA
-        try {
+        if (results.length === 0) try {
             results = await this.searchDuckDuckGoHtml(query);
             if (results.length > 0) {
                 console.log(`[WebSearchService] DDG HTML returned ${results.length} results`);
@@ -96,6 +117,31 @@ export class WebSearchService {
         }
 
         return results;
+    }
+
+    private static async searchBrave(query: string): Promise<SearchResult[]> {
+        const response = await axios.get('https://api.search.brave.com/res/v1/web/search', {
+            params: { q: query, count: 8, safesearch: 'moderate' },
+            headers: { 'Accept': 'application/json', 'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY! },
+            timeout: 10000
+        });
+        return (response.data?.web?.results || []).slice(0, 8).map((item: any) => ({
+            title: item.title || item.url,
+            url: item.url,
+            snippet: item.description || ''
+        })).filter((item: SearchResult) => item.url);
+    }
+
+    private static async searchGoogle(query: string): Promise<SearchResult[]> {
+        const response = await axios.get('https://www.googleapis.com/customsearch/v1', {
+            params: { q: query, key: process.env.GOOGLE_SEARCH_API_KEY, cx: process.env.GOOGLE_SEARCH_ENGINE_ID, num: 8 },
+            timeout: 10000
+        });
+        return (response.data?.items || []).slice(0, 8).map((item: any) => ({
+            title: item.title || item.link,
+            url: item.link,
+            snippet: item.snippet || ''
+        })).filter((item: SearchResult) => item.url);
     }
 
     private static async searchDuckDuckGoHtml(query: string): Promise<SearchResult[]> {

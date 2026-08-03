@@ -19,6 +19,8 @@ interface Message {
     workingStatus?: string;
     planData?: any;
     questions?: any[];
+    message_type?: string;
+    metadata?: any;
 }
 
 export interface BuildResult {
@@ -49,6 +51,8 @@ interface ChatPanelProps {
     onAutoFix?: (error: string) => void;
     onDownloadArtifact?: (historyId: number) => void;
     projectFiles?: Record<string, string>;
+    onPlanCreated?: (content: string) => void;
+    onOpenPlanFile?: () => void;
 }
 
 function getFileIcon(filename: string) {
@@ -74,6 +78,35 @@ function getFileType(filename: string): string {
     return ext.toUpperCase();
 }
 
+function formatPlanMarkdown(plan: any, questions: any[] = []) {
+    const lines = [`# ${plan?.title || 'Project Plan'}`, '', plan?.summary || ''];
+    if (plan?.components?.length) {
+        lines.push('', '## What I’ll build', '');
+        plan.components.forEach((component: any) => lines.push(`- **${component.name}** — ${component.desc}`));
+    }
+    if (plan?.designDirection?.length) lines.push('', '## Design direction', '', ...plan.designDirection.map((item: string) => `- ${item}`));
+    if (questions.length) lines.push('', '## Decisions to confirm', '', ...questions.map((question: any) => `- ${question.question}`));
+    return lines.join('\n');
+}
+
+function parseMetadata(metadata: any) {
+    if (!metadata) return {};
+    if (typeof metadata === 'string') {
+        try { return JSON.parse(metadata); } catch { return {}; }
+    }
+    return metadata;
+}
+
+function AgentActivityTimeline({ logs, loading, created, edited, search }: { logs: { message: string; type: 'pending' | 'done' | 'error' }[]; loading: boolean; created: string[]; edited: string[]; search: { queries: string[]; sources: { title: string; url: string }[] } | null; }) {
+    const [expanded, setExpanded] = useState(true);
+    const totalTools = created.length + edited.length + (search?.queries.length || 0);
+    if (!logs.length && !search && totalTools === 0) return null;
+    return <section className="mx-5 mb-3 overflow-hidden rounded-lg border border-white/[.09] bg-[#10151b] shadow-[0_12px_32px_rgba(0,0,0,.16)]">
+        <button type="button" onClick={() => setExpanded(!expanded)} className="flex w-full items-center justify-between border-b border-white/[.06] px-3 py-2 text-left hover:bg-white/[.02]"><span className="flex items-center gap-2"><Brain className={`h-3.5 w-3.5 ${loading ? 'animate-pulse text-violet-300' : 'text-sky-300'}`} /><span className="text-[10px] font-semibold uppercase tracking-[.12em] text-zinc-300">AI reasoning</span><span className="text-[10px] text-zinc-500">{loading ? 'Thinking…' : 'Complete'}</span></span><span className="flex items-center gap-2 text-[10px] text-zinc-500">{totalTools > 0 && `${totalTools} tool${totalTools === 1 ? '' : 's'}`}<ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? '' : '-rotate-90'}`} /></span></button>
+        {expanded && <div className="divide-y divide-white/[.055]">{logs.map((log, i) => <div key={`${log.message}-${i}`} className="flex items-center gap-2 px-3 py-2 text-[11px]">{log.type === 'done' ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" /> : log.type === 'error' ? <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-400" /> : <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-sky-400" />}<span className={log.type === 'error' ? 'text-red-300' : log.type === 'done' ? 'text-zinc-400' : 'text-zinc-200'}>{log.message}</span></div>)}{search?.queries.map((query, i) => <div key={`search-${i}`} className="px-3 py-2"><div className="flex items-center gap-2 text-[11px] text-zinc-300"><Globe className="h-3.5 w-3.5 text-sky-400" />Searched the web for <span className="truncate text-sky-300">{query}</span></div>{i === 0 && search.sources.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{search.sources.slice(0, 4).map((source, sourceIndex) => <a key={sourceIndex} href={source.url} target="_blank" rel="noreferrer" className="max-w-[180px] truncate rounded border border-sky-400/15 bg-sky-400/[.06] px-1.5 py-1 text-[9px] text-sky-200 hover:bg-sky-400/10">{source.title}</a>)}</div>}</div>)}{(created.length > 0 || edited.length > 0) && <div className="px-3 py-2"><div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[.12em] text-zinc-500">Files changed</div><div className="flex flex-wrap gap-1">{[...created.map(path => ['Created', path]), ...edited.map(path => ['Edited', path])].slice(0, 10).map(([action, path], i) => <span key={i} className="flex max-w-[200px] items-center gap-1 rounded border border-white/[.06] bg-white/[.025] px-1.5 py-1 text-[9px] text-zinc-400"><FileCode className="h-3 w-3 text-sky-300" />{action}: {String(path).split('/').pop()}</span>)}</div></div>}</div>}
+    </section>;
+}
+
 export const ChatPanel = ({
     sessionId,
     onCodeGenerated,
@@ -93,7 +126,9 @@ export const ChatPanel = ({
     onAutoFix,
     onDownloadArtifact,
     initialPrompt,
-    onInitialPromptHandled
+    onInitialPromptHandled,
+    onPlanCreated,
+    onOpenPlanFile
 }: ChatPanelProps) => {
     const { showNotification } = useNotification();
     const router = useRouter();
@@ -106,9 +141,8 @@ export const ChatPanel = ({
     const [enableWebSearch, setEnableWebSearch] = useState(false);
     const [chatMode, setChatMode] = useState(false);
   // Plan mode state
-  const [showPlanDrawer, setShowPlanDrawer] = useState(false);
   const [planPrompt, setPlanPrompt] = useState('');
-    const [execMode, setExecMode] = useState<'build' | 'plan' | 'chat'>('build');
+    const [execMode, setExecMode] = useState<'build' | 'plan' | 'chat'>('plan');
     const [showExecModeDropdown, setShowExecModeDropdown] = useState(false);
 
     // Interactive Plan & Questions State
@@ -122,6 +156,7 @@ export const ChatPanel = ({
     const abortControllerRef = useRef<AbortController | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const autoSubmittedPromptRef = useRef<string | null>(null);
     const { user } = useAuth();
 
     const statusLogKey = sessionId ? `velix_status_log_${sessionId}` : '';
@@ -330,6 +365,8 @@ export const ChatPanel = ({
 
     useEffect(() => {
         if (initialPrompt && !loading && !compact) {
+            if (autoSubmittedPromptRef.current === initialPrompt) return;
+            autoSubmittedPromptRef.current = initialPrompt;
             setPrompt(initialPrompt);
             setTimeout(() => {
                 handleSend(initialPrompt);
@@ -342,7 +379,16 @@ export const ChatPanel = ({
         if (sessionId) {
             aiApi.getMessages(sessionId).then(data => {
                 if (Array.isArray(data)) {
-                    setMessages(data);
+                    setMessages(data.map((message: any) => {
+                        const metadata = parseMetadata(message.metadata);
+                        return {
+                            ...message,
+                            message_type: message.message_type || 'message',
+                            metadata,
+                            planData: metadata.plan,
+                            questions: metadata.questions
+                        };
+                    }));
                     setTimeout(scrollToBottom, 100);
                 }
             }).catch(err => console.error('Failed to fetch messages:', err));
@@ -431,29 +477,48 @@ export const ChatPanel = ({
         if (execMode === 'plan') {
             setStatusLog([{ message: 'Analyzing request parameters & goals...', type: 'pending' }]);
             try {
-                const planRes = await aiApi.getPlan(finalPrompt, platform, language, model, controller.signal);
+                if (!sessionId) throw new Error('Create or open a project before planning.');
+                const planRes = await aiApi.getPlan(finalPrompt, sessionId, platform, language, model, controller.signal, enableWebSearch);
+                if (planRes?.error) throw new Error(planRes.error);
+                const messageMetadata = parseMetadata(planRes?.message?.metadata);
+                const normalizedPlan = planRes?.plan?.title && planRes?.plan?.summary
+                    ? planRes.plan
+                    : messageMetadata.plan?.title && messageMetadata.plan?.summary
+                        ? messageMetadata.plan
+                        : null;
+                const normalizedQuestions = Array.isArray(planRes?.questions)
+                    ? planRes.questions
+                    : Array.isArray(messageMetadata.questions)
+                        ? messageMetadata.questions
+                        : [];
+                if (!normalizedPlan) throw new Error('AI did not return a usable plan. Please try again.');
+                const normalizedMetadata = {
+                    plan: normalizedPlan,
+                    questions: normalizedQuestions,
+                    answers: messageMetadata.answers || {},
+                    status: messageMetadata.status || 'awaiting_answers'
+                };
                 if (planRes) {
-                    setPlanningData(planRes);
+                    setPlanningData({ plan: normalizedPlan, questions: normalizedQuestions });
                     setActiveQuestionIndex(0);
                     setPlanApproved(false);
                     setPlanPrompt(finalPrompt);
                     setStatusLog([{ message: 'Plan & clarifying questions generated', type: 'done' }]);
+                    if (planRes.searchQueries?.length) setSearchStatus({ queries: planRes.searchQueries, sources: planRes.searchSources || [] });
 
-                    setMessages(prev => [
-                        ...prev,
-                        {
-                            role: 'assistant',
-                            content: `Reviewing request parameters and goals. Here is the blueprint plan and options for how we should build this:`,
-                            workingStatus: 'Reviewing request parameters and goals',
-                            planData: planRes.plan,
-                            questions: planRes.questions
-                        }
-                    ]);
+                    const savedMessage = planRes.message ? {
+                        ...planRes.message,
+                        id: planRes.message.id || -Date.now(),
+                        message_type: 'plan', metadata: normalizedMetadata,
+                        planData: normalizedPlan, questions: normalizedQuestions
+                    } : { id: -Date.now(), role: 'assistant' as const, content: normalizedPlan.summary || '', message_type: 'plan', metadata: normalizedMetadata };
+                    setMessages(prev => [...prev, savedMessage]);
+                    onPlanCreated?.(formatPlanMarkdown(normalizedPlan, normalizedQuestions));
                 }
             } catch (planErr: any) {
                 console.error('Plan failed:', planErr);
-                setStatusLog([{ message: 'Proceeding directly to build...', type: 'error' }]);
-                runBuildGeneration(finalPrompt);
+                setStatusLog([{ message: planErr?.message || 'Unable to create a plan. Please try again.', type: 'error' }]);
+                showNotification(planErr?.message || 'Unable to create a plan.', 'error');
                 return;
             } finally {
                 setLoading(false);
@@ -464,7 +529,8 @@ export const ChatPanel = ({
         runBuildGeneration(finalPrompt);
     };
 
-    const runBuildGeneration = async (finalPromptOverride?: string) => {
+    const runBuildGeneration = async (finalPromptOverride?: string, approvedPlanId?: number) => {
+        const effectiveChatMode = execMode === 'chat' || chatMode;
         const userMsg = messages[messages.length - 1]?.content || prompt;
         let finalPrompt = finalPromptOverride || userMsg;
 
@@ -513,7 +579,7 @@ export const ChatPanel = ({
             { message: 'Analyzing request...', type: 'done' }
         ];
 
-        if (!chatMode) {
+        if (!effectiveChatMode) {
             setStatusLog([...logs, { message: `Loading ${skillLabel} ${modeLabel.toLowerCase()} skills...`, type: 'pending' }]);
             await new Promise(r => setTimeout(r, 400));
 
@@ -551,7 +617,7 @@ export const ChatPanel = ({
         const hasImages = attachedFiles.some(f => f.type.startsWith('image/'));
         const fileContextCount = projectFiles ? Object.keys(projectFiles).filter(p => !p.startsWith('.')).length : 0;
 
-        if (!chatMode) {
+        if (!effectiveChatMode) {
             if (hasImages) {
                 logs.push({ message: `Vision: ${attachedFiles.filter(f => f.type.startsWith('image/')).length} image(s) attached`, type: 'done' });
                 setStatusLog([...logs]);
@@ -584,7 +650,7 @@ export const ChatPanel = ({
         }
         setStatusLog([...logs]);
 
-        const genLabel = chatMode ? 'Thinking...' : isConfig ? 'Generating config...' : isDatapack ? 'Generating datapack...' : isScripting ? 'Generating commands...' : 'Generating code...';
+        const genLabel = effectiveChatMode ? 'Thinking...' : isConfig ? 'Generating config...' : isDatapack ? 'Generating datapack...' : isScripting ? 'Generating commands...' : 'Generating code...';
         logs.push({ message: genLabel, type: 'pending' });
         setStatusLog([...logs]);
 
@@ -611,7 +677,9 @@ export const ChatPanel = ({
                 enableWebSearch,
                 imageAttachments.length > 0 ? imageAttachments : undefined,
                 fileContextEntries.length > 0 ? fileContextEntries : undefined,
-                chatMode
+                effectiveChatMode,
+                Boolean(approvedPlanId),
+                approvedPlanId
             );
         } catch (fetchErr: any) {
             if (fetchErr.name === 'AbortError') {
@@ -651,9 +719,10 @@ export const ChatPanel = ({
             });
         }
 
-        if (chatMode) {
+        if (effectiveChatMode) {
             // Chat mode: just show conversational response
-            setStatusLog([]);
+            logs[logs.length - 1] = { message: 'Response ready', type: 'done' };
+            setStatusLog([...logs]);
             setMessages(prev => [
                 ...prev,
                 { role: 'assistant', content: result.rawResponse }
@@ -710,7 +779,7 @@ export const ChatPanel = ({
 
             setMessages(prev => [
                 ...prev,
-                { role: 'assistant', content: summaryText, files: result.files }
+                { role: 'assistant', content: summaryText, files: result.files, message_type: 'build', metadata: { files: result.files.map((file: any) => ({ path: file.path, size: file.content?.length || 0 })), status: 'completed' } }
             ]);
 
             await new Promise(r => setTimeout(r, 400));
@@ -723,6 +792,36 @@ export const ChatPanel = ({
             ]);
         }
         setLoading(false);
+    };
+
+    const handleSavePlan = async (messageId: number, answers: Record<string, string>) => {
+        if (!sessionId) return;
+        if (messageId > 0) {
+            const result = await aiApi.updatePlan(messageId, sessionId, answers, 'awaiting_approval');
+            if (result.error) return showNotification(result.error, 'error');
+        }
+        setSelectedAnswers(answers);
+        setMessages(prev => prev.map(message => message.id === messageId ? {
+            ...message,
+            metadata: { ...(message.metadata || {}), answers, status: 'awaiting_approval' }
+        } : message).concat({ role: 'assistant', content: 'Answers saved. Plan ready for approval.', message_type: 'timeline', metadata: { event: 'awaiting_approval' } }));
+    };
+
+    const handleApprovePlan = async (messageId: number) => {
+        if (!sessionId || loading) return;
+        const planMessage = messages.find(message => message.id === messageId);
+        const answers = planMessage?.metadata?.answers || selectedAnswers;
+        if (messageId > 0) {
+            const update = await aiApi.updatePlan(messageId, sessionId, answers, 'approved');
+            if (update.error) return showNotification(update.error, 'error');
+        }
+        setMessages(prev => prev.map(message => message.id === messageId ? {
+            ...message, metadata: { ...(message.metadata || {}), answers, status: 'approved' }
+        } : message).concat({ role: 'assistant', content: 'Plan approved. Building your project now.', message_type: 'timeline', metadata: { event: 'approved' } }));
+        setPlanningData({ plan: planMessage?.metadata?.plan || planMessage?.planData, questions: planMessage?.metadata?.questions || [] });
+        setSelectedAnswers(answers);
+        setPlanApproved(true);
+        await runBuildGeneration(planPrompt || messages.filter(message => message.role === 'user').slice(-1)[0]?.content || '', messageId > 0 ? messageId : undefined);
     };
 
     if (compact) {
@@ -846,7 +945,10 @@ export const ChatPanel = ({
     }
 
     return (
-        <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <div className="relative flex-1 flex flex-col h-full overflow-hidden">
+            <div className="flex items-center justify-end gap-2 px-3 py-2 border-b border-white/5">
+                <button onClick={async () => { if (sessionId && window.confirm('Clear this project conversation? This cannot be undone.')) { const result = await aiApi.clearMessages(sessionId); if (!result.error) { setMessages([]); setPlanningData(null); } } }} className="rounded-lg px-2 py-1 text-[10px] text-zinc-500 hover:text-red-300">Clear</button>
+            </div>
             <div className="flex-1 overflow-y-auto mb-2 space-y-2">
                 {messages.length === 0 && statusLog.length === 0 && !buildResult && (
                     <div className="flex flex-col items-center justify-center h-full text-center px-4">
@@ -856,24 +958,25 @@ export const ChatPanel = ({
                     </div>
                 )}
 
-                {/* Web search status */}
-                {searchStatus && searchStatus.queries.length > 0 && (
+                <AgentActivityTimeline logs={statusLog} loading={loading} created={generatedFiles.created} edited={generatedFiles.edited} search={searchStatus} />
+                {/* Legacy source pills are retained only for backwards-compatible DOM styling. */}
+                {false && (searchStatus?.queries.length || 0) > 0 && (
                     <div className="mx-2 mb-2 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 animate-in fade-in duration-200">
                         <div className="flex items-center gap-2 mb-2">
                             <Globe className="w-3.5 h-3.5 text-blue-400" />
                             <span className="text-[11px] font-bold text-blue-400">Web Search</span>
                         </div>
                         <div className="space-y-1.5">
-                            {searchStatus.queries.map((q, i) => (
+                            {searchStatus!.queries.map((q, i) => (
                                 <div key={i} className="flex items-center gap-2 text-[10px]">
                                     <span className="text-foreground/40">Searched:</span>
                                     <span className="text-foreground/70 font-medium">"{q}"</span>
                                 </div>
                             ))}
                         </div>
-                        {searchStatus.sources.length > 0 && (
+                        {searchStatus!.sources.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1">
-                                {searchStatus.sources.slice(0, 5).map((s, i) => (
+                                {searchStatus!.sources.slice(0, 5).map((s, i) => (
                                     <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
                                         className="px-1.5 py-0.5 text-[9px] rounded bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition-colors truncate max-w-[150px]"
                                         title={s.title}
@@ -881,8 +984,8 @@ export const ChatPanel = ({
                                         {s.title.slice(0, 30)}{s.title.length > 30 ? '...' : ''}
                                     </a>
                                 ))}
-                                {searchStatus.sources.length > 5 && (
-                                    <span className="px-1.5 py-0.5 text-[9px] text-foreground/30">+{searchStatus.sources.length - 5} more</span>
+                                {searchStatus!.sources.length > 5 && (
+                                    <span className="px-1.5 py-0.5 text-[9px] text-foreground/30">+{searchStatus!.sources.length - 5} more</span>
                                 )}
                             </div>
                         )}
@@ -895,18 +998,16 @@ export const ChatPanel = ({
     return (
         <React.Fragment key={i}>
             <ChatMessage
+                id={msg.id}
                 role={msg.role}
                 content={msg.content}
                 created_at={msg.created_at}
                 attachments={msg.attachments}
-                workingStatus={msg.workingStatus}
-                planData={msg.planData}
-                questions={msg.questions}
-                onPlanSubmit={(answers) => {
-                    setSelectedAnswers(answers);
-                    setPlanApproved(true);
-                    runBuildGeneration(prompt || msg.content);
-                }}
+                messageType={msg.message_type}
+                metadata={msg.metadata || { plan: msg.planData, questions: msg.questions }}
+                onSavePlan={handleSavePlan}
+                onApprovePlan={handleApprovePlan}
+                onOpenPlan={onOpenPlanFile}
             />
             {showFileChips && (
                 <FileChipsSummary created={generatedFiles.created} edited={generatedFiles.edited} />
@@ -986,7 +1087,7 @@ export const ChatPanel = ({
                     </div>
                 )}
 
-                {statusLog.length > 0 && (
+                {false && statusLog.length > 0 && (
                     <div className="px-3 py-2 space-y-1 animate-in fade-in duration-200">
                         <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center gap-1.5">
@@ -1073,7 +1174,7 @@ export const ChatPanel = ({
                                 handleSend();
                             }
                         }}
-                        placeholder={isConfig ? "Describe the plugin config you need..." : isDatapack ? "Describe the datapack you need..." : isScripting ? "Describe the commands you need..." : attachedFiles.length > 0 ? "Add a message about the uploaded files..." : "Describe what you want to build..."}
+                        placeholder={execMode === 'chat' ? "Ask me anything..." : isConfig ? "Describe the plugin config you need..." : isDatapack ? "Describe the datapack you need..." : isScripting ? "Describe the commands you need..." : attachedFiles.length > 0 ? "Add a message about the uploaded files..." : "Describe what you want to build..."}
                         className="neu-input w-full text-xs text-foreground rounded-2xl p-4 pr-20 outline-none transition-all resize-none h-20"
                     />
                     <div className="absolute right-3 bottom-3 flex items-center gap-1.5 z-20">
